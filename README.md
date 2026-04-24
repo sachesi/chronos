@@ -37,6 +37,9 @@ In manual mode, `chronos -ba` discovers and runs:
 - system config scope: `/etc/chronos/config.toml` plus `/etc/chronos/config.toml.d/*.toml` (merged in lexical order)
 - user config scope: `~/.config/chronos/*.toml` (each file is a separate job)
 
+`~/.config/chronos/config.toml` is reserved for optional user UI defaults (`[ui]` only).
+Put user backup jobs in separate files such as `projects.toml`, `games.toml`, and `dotfiles.toml`.
+
 Backup selected targets:
 
 ```bash
@@ -97,7 +100,8 @@ Config paths:
 ```text
 /etc/chronos/config.toml
 /etc/chronos/config.toml.d/*.toml
-~/.config/chronos/*.toml
+~/.config/chronos/config.toml      # [ui] defaults only
+~/.config/chronos/*.toml           # backup jobs (except config.toml)
 ```
 
 Create it:

@@ -9,11 +9,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chronos.cli import (  # noqa: E402
+    DEFAULT_CONFIG,
     ChronosError,
     Plan,
+    apply_ui_overrides,
     confirm_restore,
     discover_config_jobs_for_run,
     load_merged_system_config,
+    load_user_ui_defaults,
     load_user_config_jobs,
     maybe_sudo_escalate,
     parse_args,
@@ -56,6 +59,18 @@ def test_auto_all_discovers_system_and_user_configs(scoped_paths: tuple[Path, Pa
 
 def test_explicit_config_only_uses_explicit(tmp_path: Path) -> None:
     cfg = write(tmp_path / "explicit.toml", 'all_targets=["home"]\n')
+    plan = parse_args(["-ba", "-c", str(cfg)])
+    validate_plan(plan)
+    jobs = discover_config_jobs_for_run(plan)
+    assert len(jobs) == 1
+    assert jobs[0].scope == "explicit"
+
+
+def test_explicit_user_config_toml_still_allowed(tmp_path: Path) -> None:
+    cfg = write(
+        tmp_path / "config.toml",
+        'all_targets=["projects"]\n[targets.projects]\nsrc="/tmp"\ndst="projects"\n',
+    )
     plan = parse_args(["-ba", "-c", str(cfg)])
     validate_plan(plan)
     jobs = discover_config_jobs_for_run(plan)
@@ -147,6 +162,7 @@ def test_spec_installs_systemd_and_etc_config() -> None:
 def test_user_config_paths_filters_temp_files(scoped_paths: tuple[Path, Path, Path]) -> None:
     _, _, home = scoped_paths
     write(home / ".config/chronos/a.toml", "all_targets=['home']\n")
+    write(home / ".config/chronos/config.toml", "[ui]\nprogress='none'\n")
     write(home / ".config/chronos/a.toml.bak", "")
     write(home / ".config/chronos/.hidden.toml", "")
     paths = user_config_paths()
@@ -162,3 +178,30 @@ def test_system_config_paths_include_main_and_dropins(scoped_paths: tuple[Path, 
     paths = system_config_paths()
     assert paths[0] == system_main
     assert [p.name for p in paths[1:]] == ["10.toml", "20.toml"]
+
+
+def test_user_ui_defaults_config_with_non_ui_keys_fails(scoped_paths: tuple[Path, Path, Path]) -> None:
+    _, _, home = scoped_paths
+    write(home / ".config/chronos/config.toml", "backup_dir='/tmp/bak'\n[ui]\nprogress='none'\n")
+    with pytest.raises(ChronosError, match="reserved for user UI defaults"):
+        load_user_ui_defaults()
+
+
+def test_user_ui_defaults_override_job_ui_in_manual_auto_mode() -> None:
+    config = {
+        **DEFAULT_CONFIG,
+        "ui": {"progress": "chronos", "extra-info": False},
+    }
+    plan = Plan(mode="backup", selections=["all"], scope="auto")
+    result = apply_ui_overrides(config, plan, {"progress": "none"})
+    assert result["ui"]["progress"] == "none"
+
+
+def test_no_interactive_does_not_apply_cross_scope_ui_defaults() -> None:
+    config = {
+        **DEFAULT_CONFIG,
+        "ui": {"progress": "chronos", "extra-info": False},
+    }
+    plan = Plan(mode="backup", selections=["all"], scope="auto", no_interactive=True)
+    result = apply_ui_overrides(config, plan, {"progress": "none"})
+    assert result["ui"]["progress"] == "chronos"

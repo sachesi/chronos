@@ -567,6 +567,8 @@ def user_config_paths() -> list[Path]:
         name = p.name
         if name.startswith(".") or name.endswith(".bak") or name.endswith(".tmp"):
             continue
+        if name == "config.toml":
+            continue
         if p.is_file():
             out.append(p)
     return out
@@ -1135,6 +1137,30 @@ def load_user_config_jobs() -> list[ConfigJob]:
             )
         )
     return jobs
+
+
+def validate_ui_defaults_only(path: Path, config_data: dict[str, Any]) -> dict[str, Any]:
+    non_ui_keys = sorted(k for k in config_data.keys() if k != "ui")
+    if non_ui_keys:
+        raise ChronosError(
+            f"{path} is reserved for user UI defaults; move backup targets to projects.toml, "
+            "games.toml, etc."
+        )
+    ui = config_data.get("ui", {})
+    if not isinstance(ui, dict):
+        raise ChronosError(f"invalid config ({path}): ui must be a table")
+    # Reuse config validation semantics by embedding ui into defaults.
+    merged = deep_merge(DEFAULT_CONFIG, {"ui": ui})
+    validated = validate_config(merged, path)
+    return dict(validated.get("ui", {}))
+
+
+def load_user_ui_defaults() -> dict[str, Any] | None:
+    path = user_config_dir() / "config.toml"
+    if not path.exists():
+        return None
+    config_data = load_config_file(path)
+    return validate_ui_defaults_only(path, config_data)
 
 
 def write_default_config(path: Path | None = None) -> None:
@@ -2403,6 +2429,25 @@ def print_config_jobs(jobs: list[ConfigJob]) -> None:
         print(f"  {job.scope:<8} {job.display_name}")
 
 
+def should_apply_user_ui_defaults(plan: Plan) -> bool:
+    if plan.no_interactive:
+        return False
+    if plan.config_path is not None:
+        return False
+    return plan.scope == "auto"
+
+
+def apply_ui_overrides(
+    config: dict[str, Any], plan: Plan, user_ui_defaults: dict[str, Any] | None
+) -> dict[str, Any]:
+    effective = deepcopy(config)
+    if should_apply_user_ui_defaults(plan) and user_ui_defaults:
+        effective["ui"] = deep_merge(effective.get("ui", {}), user_ui_defaults)
+    if plan.extra_info is not None:
+        effective.setdefault("ui", {})["extra-info"] = plan.extra_info
+    return effective
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
@@ -2415,6 +2460,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         jobs = discover_config_jobs_for_run(plan)
+        user_ui_defaults = load_user_ui_defaults() if should_apply_user_ui_defaults(plan) else None
         if plan.list_configs:
             print_config_jobs(jobs)
             return 0
@@ -2458,8 +2504,7 @@ def main(argv: list[str] | None = None) -> int:
                 config["backup_dir"] = plan.backup_dir_override
             if plan.restore_root_override:
                 config["restore_root"] = plan.restore_root_override
-            if plan.extra_info is not None:
-                config.setdefault("ui", {})["extra-info"] = plan.extra_info
+            config = apply_ui_overrides(config, plan, user_ui_defaults)
 
             targets = selected_job_targets(job, plan)
             if plan.version is not None and len(targets) != 1:
