@@ -15,6 +15,7 @@ from .config import (
     backup_dest,
     default_config_path,
     discover_config_jobs_for_run,
+    extra_info_enabled,
     expand_user_path,
     load_user_ui_defaults,
     needs_root,
@@ -317,30 +318,32 @@ def print_summary(
     config_path: Path | None,
     targets: list[str] | None = None,
     selinux=None,
+    *,
+    compact: bool = False,
+    show_extra: bool = False,
 ) -> None:
     section(APP_NAME)
-    print(f"{c('version:', Color.BOLD)}      {__version__}")
+    if not compact or show_extra:
+        print(f"{c('version:', Color.BOLD)}      {__version__}")
     print(
         f"{c('config:', Color.BOLD)}       {config_path if config_path else '(built-in defaults)'}"
     )
-    print(f"{c('backup dir:', Color.BOLD)}   {config['backup_dir']}")
-    print(f"{c('restore root:', Color.BOLD)} {config['restore_root']}")
-    print(f"{c('all targets:', Color.BOLD)}  {', '.join(config.get('all_targets', []))}")
-    if selinux is not None:
+    backup_label = "backup:" if compact else "backup dir:"
+    print(f"{c(backup_label, Color.BOLD)}   {config['backup_dir']}")
+    if not compact or show_extra:
+        print(f"{c('restore root:', Color.BOLD)} {config['restore_root']}")
+    print(f"{c('targets:', Color.BOLD)}      {', '.join(config.get('all_targets', []))}")
+    if show_extra and selinux is not None:
         print(f"{c('SELinux:', Color.BOLD)}      {selinux.summary()}")
     if targets is not None:
         print(f"{c('selected:', Color.BOLD)}     {', '.join(targets)}")
 
 
-def print_list_targets(config: dict) -> None:
-    section("targets")
+def print_list_targets(config: dict, *, scope: str | None = None) -> None:
+    section(f"{scope} targets" if scope else "targets")
     for name, target in config.get("targets", {}).items():
         src = target.get("src") or ", ".join(target.get("src_candidates", []))
-        in_all = name in config.get("all_targets", [])
-        marker = c("*", Color.GREEN) if in_all else " "
-        print(f" {marker} {c(name, Color.BOLD):<20} {src:<30} -> {backup_dest(config, name)}")
-    print()
-    print("* = included in -a / all")
+        print(f"  {c(name, Color.BOLD):<20} {src:<30} -> {backup_dest(config, name)}")
 
     presets = config.get("presets", {})
     if presets:
@@ -419,16 +422,20 @@ def main(argv: list[str] | None = None) -> int:
             warn("dry-run enabled")
 
         if plan.show_config:
-            sel = selinux_info()
             for job in jobs:
-                print_summary(job.config, job.path, selinux=sel)
+                config = apply_ui_overrides(deepcopy(job.config), plan, user_ui_defaults)
+                show_extra = extra_info_enabled(config)
+                sel = selinux_info() if show_extra else None
+                print_summary(config, job.path, selinux=sel, show_extra=show_extra)
             return 0
 
         if plan.list_targets and not plan.mode:
-            sel = selinux_info()
             for job in jobs:
-                print_summary(job.config, job.path, selinux=sel)
-                print_list_targets(job.config)
+                config = apply_ui_overrides(deepcopy(job.config), plan, user_ui_defaults)
+                show_extra = extra_info_enabled(config)
+                sel = selinux_info() if show_extra else None
+                print_summary(config, job.path, selinux=sel, compact=True, show_extra=show_extra)
+                print_list_targets(config, scope=job.scope)
             return 0
 
         if plan.list_versions_target is not None and not plan.mode:
@@ -468,7 +475,8 @@ def main(argv: list[str] | None = None) -> int:
                         f"target {targets[0]} requires root, but sudo escalation is disabled"
                     )
 
-            print_summary(config, job.path, targets, selinux=sel)
+            show_extra = extra_info_enabled(config)
+            print_summary(config, job.path, targets, selinux=sel, show_extra=show_extra)
             if plan.list_targets:
                 print_list_targets(config)
                 continue
