@@ -10,6 +10,8 @@ complete -c chronos -s n -l dry-run -d 'Dry-run rsync'
 complete -c chronos -s y -l yes -d 'Skip restore confirmation'
 complete -c chronos -l backup-dir -d 'Override backup directory' -r -F
 complete -c chronos -l restore-root -d 'Override restore root' -r -F
+complete -c chronos -l from-version -d 'Restore from backup version' -r
+complete -c chronos -l list-versions -d 'List backup versions for target' -r
 complete -c chronos -l init-config -d 'Create default config'
 complete -c chronos -l show-config -d 'Show config summary'
 complete -c chronos -l list-targets -d 'List configured targets'

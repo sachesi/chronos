@@ -36,7 +36,7 @@ chronos -ra
 
 ## Restore-version controls
 
-- `--version NAME`
+- `--from-version NAME`
   - Implemented.
   - Restore a specific version from a versioned target.
   - Valid only in restore mode and with exactly one target.

@@ -1,5 +1,5 @@
 Name:           chronos
-Version:        0.2.0
+Version:        0.2.1
 Release:        1%{?dist}
 Summary:        Configurable rsync backup and restore helper for Linux
 
@@ -103,6 +103,11 @@ chmod 0644 %{buildroot}%{_datadir}/zsh/site-functions/_%{name}
 %config(noreplace) %attr(0644,root,root) %{_sysconfdir}/chronos/config.toml
 
 %changelog
+* Fri Apr 24 2026 sachesi <sachesi@example.com> - 0.2.1-1
+- Make --version report Chronos version directly
+- Rename restore snapshot selector to --from-version
+- Update completions and docs for version flags
+
 * Fri Apr 24 2026 sachesi <sachesi@example.com> - 0.2.0-1
 - Align docs with scoped system/user config workflow
 - Keep efi and boot available but not enabled by default

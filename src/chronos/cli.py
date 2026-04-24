@@ -50,6 +50,7 @@ def usage() -> str:
           chronos -ra                         Restore all configured targets
           chronos -r root -r home -r efi      Restore selected targets
           chronos --list-versions projects    List available backup versions for target
+          chronos --version                    Show chronos version
 
         Also works:
           chronos backup all
@@ -62,7 +63,7 @@ def usage() -> str:
           -y, --yes                   Do not ask restore confirmation
               --backup-dir PATH       Override backup_dir from config
               --restore-root PATH     Override restore_root from config
-          --version NAME          Restore from a specific backup version (restore mode only)
+          --from-version NAME     Restore from a specific backup version (restore mode only)
           --list-versions TARGET  List versions for a target (newest first)
           --init-config           Create default ~/.config/chronos/config.toml
               --scope MODE            Config scope: auto|system|user
@@ -108,7 +109,7 @@ def parse_args(argv: list[str]) -> Plan:
         if arg in ("-h", "--help"):
             print(usage())
             raise SystemExit(0)
-        elif arg == "version":
+        elif arg in ("version", "-v", "--version"):
             print(__version__)
             raise SystemExit(0)
         elif arg in ("-c", "--config"):
@@ -159,12 +160,12 @@ def parse_args(argv: list[str]) -> Plan:
             plan.show_config = True
         elif arg == "--list-targets":
             plan.list_targets = True
-        elif arg == "--version":
+        elif arg == "--from-version":
             i += 1
             if i >= len(argv):
-                raise ChronosError("--version needs a version name")
+                raise ChronosError("--from-version needs a version name")
             plan.version = argv[i]
-        elif arg.startswith("--version="):
+        elif arg.startswith("--from-version="):
             plan.version = arg.split("=", 1)[1]
         elif arg == "--list-versions":
             i += 1
@@ -210,6 +211,9 @@ def parse_args(argv: list[str]) -> Plan:
                 elif ch == "h":
                     print(usage())
                     raise SystemExit(0)
+                elif ch == "v":
+                    print(__version__)
+                    raise SystemExit(0)
                 else:
                     raise ChronosError(f"unknown short option: -{ch}")
         elif not _is_option_like(arg):
@@ -228,9 +232,9 @@ def validate_plan(plan: Plan) -> None:
     if plan.version is not None:
         validate_version_name(plan.version)
         if plan.mode != "restore":
-            raise ChronosError("--version requires restore mode")
+            raise ChronosError("--from-version requires restore mode")
         if len(plan.selections) != 1:
-            raise ChronosError("--version can be used with exactly one restore target")
+            raise ChronosError("--from-version can be used with exactly one restore target")
     if plan.list_versions_target is not None and plan.mode:
         raise ChronosError("--list-versions cannot be combined with backup or restore mode")
     if plan.no_interactive:
@@ -551,7 +555,7 @@ def main(argv: list[str] | None = None) -> int:
 
             targets = selected_job_targets(job, plan)
             if plan.version is not None and len(targets) != 1:
-                raise ChronosError("--version can be used with exactly one restore target")
+                raise ChronosError("--from-version can be used with exactly one restore target")
             if os.geteuid() != 0 and needs_root(config, targets, plan.mode):
                 if plan.no_sudo:
                     raise ChronosError(
