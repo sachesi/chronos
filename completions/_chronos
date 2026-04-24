@@ -1,0 +1,20 @@
+#compdef chronos
+
+_arguments -s -S \
+  '(-h --help)'{-h,--help}'[show help]' \
+  '--version[show version]' \
+  '(-b --backup)'{-b,--backup}'[backup mode]' \
+  '(-r --restore)'{-r,--restore}'[restore mode]' \
+  '(-a --all)'{-a,--all}'[select all configured targets]' \
+  '(-c --config)'{-c,--config}'[use config file]:config file:_files -g "*.toml"' \
+  '(-n --dry-run)'{-n,--dry-run}'[dry-run rsync]' \
+  '(-y --yes)'{-y,--yes}'[skip restore confirmation]' \
+  '--backup-dir[override backup directory]:directory:_files -/' \
+  '--restore-root[override restore root]:directory:_files -/' \
+  '--init-config[create default config]' \
+  '--show-config[show config summary]' \
+  '--list-targets[list configured targets]' \
+  '--extra-info[show verbose diagnostics, including rsync command]' \
+  '--no-extra-info[hide verbose diagnostics]' \
+  '1:mode:(backup bak restore rst)' \
+  '*:target:(all root home efi esp boot / /home /efi /boot /boot/efi)'

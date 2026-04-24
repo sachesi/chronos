@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chronos"
+version = "0.1.0"
+description = "A configurable Linux rsync backup and restore helper."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+  { name = "sachesi" }
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: System :: Archiving :: Backup",
+  "Topic :: System :: Recovery Tools",
+]
+
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/sachesi/chronos"
+Repository = "https://github.com/sachesi/chronos"
+Issues = "https://github.com/sachesi/chronos/issues"
+
+[project.scripts]
+chronos = "chronos.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
