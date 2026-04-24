@@ -3,8 +3,8 @@
 ## sudo behavior
 Chronos may re-exec itself through `sudo` when selected jobs/targets need root and caller is non-root.
 
-- Root is required for system-scope backups and for restores.
-- User-scope jobs can run unprivileged when targets are readable by the user.
+- Root is required for targets with `requires_root = true` (built-in: `root`, `efi`, `boot`). This applies to both backup and restore.
+- User-scope jobs skip sudo escalation entirely. Targets with `requires_root = false` (the default) run without root for both backup and restore.
 
 ## `--no-sudo`
 With `--no-sudo`, Chronos will not escalate.

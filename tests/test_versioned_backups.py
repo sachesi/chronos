@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from chronos.cli import (
     ChronosError,
     DEFAULT_CONFIG,
+    backup_target,
     create_version_dir,
     deep_merge,
     list_target_versions,
@@ -17,6 +18,7 @@ from chronos.cli import (
     parse_args,
     prune_old_versions,
     resolve_current_version,
+    selinux_info,
     source_for_restore,
     validate_plan,
     validate_version_name,
@@ -305,3 +307,48 @@ def test_version_on_non_versioned_target_raises(tmp_path: Path) -> None:
 
     with pytest.raises(ChronosError, match=r"non-versioned target"):
         source_for_restore(config, "home", "20260424-213001")
+
+
+def test_failed_versioned_backup_cleans_incomplete_and_does_not_update_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "backup"
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "file.txt").write_text("data")
+
+    config = deep_merge(
+        DEFAULT_CONFIG,
+        {
+            "backup_dir": str(root),
+            "require_backup_mount": False,
+            "check_filesystems": False,
+            "progress": False,
+            "targets": {
+                "projects": {
+                    "src": str(src) + "/",
+                    "dst": "projects",
+                    "requires_root": False,
+                    "versioned": True,
+                    "keep_versions": 10,
+                    "backup_exclude": [],
+                    "restore_exclude": [],
+                }
+            },
+        },
+    )
+    monkeypatch.setattr("chronos.cli.version_name_now", lambda: "20260424-213001")
+    monkeypatch.setattr("chronos.cli.run_rsync", lambda *a, **kw: (_ for _ in ()).throw(ChronosError("rsync failed")))
+
+    selinux = selinux_info()
+    with pytest.raises(ChronosError, match="rsync failed"):
+        backup_target(config, "projects", dry_run=False, selinux=selinux)
+
+    # incomplete dir must be removed
+    assert not (root / "projects" / ".incomplete-20260424-213001").exists()
+    # current must not have been created
+    assert not (root / "projects" / "current").exists()
+    # versions dir must be empty (or not exist)
+    versions = root / "projects" / "versions"
+    if versions.exists():
+        assert list(versions.iterdir()) == []

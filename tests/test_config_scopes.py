@@ -128,6 +128,40 @@ def test_no_sudo_with_root_target_fails_cleanly(scoped_paths: tuple[Path, Path, 
         maybe_sudo_escalate(jobs, plan)
 
 
+def test_no_sudo_restore_with_non_root_user_target_does_not_fail(
+    scoped_paths: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, home = scoped_paths
+    write(
+        home / ".config/chronos/projects.toml",
+        'all_targets=["projects"]\n[targets.projects]\nsrc="/mnt/data0/projects/"\ndst="projects"\nrequires_root=false\n',
+    )
+    plan = parse_args(["-r", "projects", "--scope", "user", "--no-sudo"])
+    validate_plan(plan)
+    jobs = discover_config_jobs_for_run(plan)
+    monkeypatch.setattr("os.geteuid", lambda: 1000)
+    # non-root target with --no-sudo in user scope must not raise
+    maybe_sudo_escalate(jobs, plan)
+
+
+def test_explicit_config_non_root_target_restore_does_not_escalate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = write(
+        tmp_path / "projects.toml",
+        'all_targets=["projects"]\n[targets.projects]\nsrc="/mnt/data0/projects/"\ndst="projects"\nrequires_root=false\n',
+    )
+    plan = parse_args(["-r", "projects", "-c", str(cfg)])
+    validate_plan(plan)
+    jobs = discover_config_jobs_for_run(plan)
+    monkeypatch.setattr("os.geteuid", lambda: 1000)
+    # explicit config with requires_root=false must not trigger escalation
+    sudo_called = []
+    monkeypatch.setattr("os.execvp", lambda *a: sudo_called.append(a))
+    maybe_sudo_escalate(jobs, plan)
+    assert not sudo_called
+
+
 def test_no_interactive_restore_does_not_prompt() -> None:
     plan = Plan(mode="restore", selections=["root"], no_interactive=True, yes=True)
     confirm_restore({"confirm_restore_to_live_root": True, "restore_root": "/"}, plan, ["root"])

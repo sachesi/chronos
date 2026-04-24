@@ -159,3 +159,28 @@ def test_builtin_system_targets_still_require_root_for_backup() -> None:
     assert target_needs_root(DEFAULT_CONFIG, "efi", "backup") is True
     assert target_needs_root(DEFAULT_CONFIG, "boot", "backup") is True
     assert target_needs_root(DEFAULT_CONFIG, "home", "backup") is False
+
+
+def test_system_targets_still_require_root_for_restore() -> None:
+    assert target_needs_root(DEFAULT_CONFIG, "root", "restore") is True
+    assert target_needs_root(DEFAULT_CONFIG, "efi", "restore") is True
+    assert target_needs_root(DEFAULT_CONFIG, "boot", "restore") is True
+
+
+def test_non_root_target_does_not_require_root_for_restore() -> None:
+    config = deep_merge(
+        DEFAULT_CONFIG,
+        {
+            "targets": {
+                "projects": {
+                    "src": "/mnt/data0/projects/",
+                    "dst": "projects",
+                    "requires_root": False,
+                }
+            }
+        },
+    )
+    assert target_needs_root(config, "projects", "restore") is False
+    assert target_needs_root(config, "home", "restore") is False
+
+

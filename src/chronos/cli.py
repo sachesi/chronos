@@ -1174,9 +1174,6 @@ def write_default_config(path: Path | None = None) -> None:
 
 
 def target_needs_root(config: dict[str, Any], target: str, mode: str) -> bool:
-    if mode == "restore":
-        return True
-
     target_config = config["targets"][target]
     return target_requires_root(target_config)
 
@@ -1230,7 +1227,6 @@ def maybe_sudo_escalate(
     env_args = [
         f"CHRONOS_ORIGINAL_USER={original_user_name()}",
         f"CHRONOS_ORIGINAL_HOME={original_user_home()}",
-        "CHRONOS_MANUAL_AUTO_ALL=1",
     ]
     info("root privileges required for selected targets — re-running with sudo…")
     os.execvp(sudo, [sudo, *env_args, sys.argv[0], *args])
@@ -2208,7 +2204,7 @@ def backup_target(
             show_command=extra_info_enabled(config),
         )
     except Exception:
-        if incomplete_dir is not None and dry_run:
+        if incomplete_dir is not None:
             shutil.rmtree(incomplete_dir, ignore_errors=True)
         raise
 

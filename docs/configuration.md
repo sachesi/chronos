@@ -85,13 +85,11 @@ Compatibility keys still accepted:
 - `extra_restore_args` (array[string])
 
 ### `[presets]`
-Preset entries may be:
+Each preset is a table (`[presets.<name>]`) with at least one of:
 
-- array form: `targets = ["root", "home"]`
-- table form with either:
-  - `targets = [...]`
-  - `backup_targets = [...]`
-  - `restore_targets = [...]`
+- `targets = [...]` — used for both backup and restore
+- `backup_targets = [...]` — used for backup only
+- `restore_targets = [...]` — used for restore only
 
 ### `[targets.<name>]`
 Required:
