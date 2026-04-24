@@ -12,17 +12,14 @@ from pathlib import Path
 from . import __version__
 from .config import (
     APP_NAME,
-    apply_ui_overrides,
     backup_dest,
     default_config_path,
     discover_config_jobs_for_run,
     extra_info_enabled,
     expand_user_path,
-    load_user_ui_defaults,
     needs_root,
     normalize_builtin_selection,
     selected_job_targets,
-    should_apply_user_ui_defaults,
     write_default_config,
 )
 from .fs import (
@@ -76,7 +73,7 @@ def usage() -> str:
               --show-config           Print active config path and summary
               --list-targets          Show configured targets and presets
               --extra-info            Show verbose diagnostics, including rsync command
-              --no-extra-info         Hide verbose diagnostics even if config enables them
+              --no-extra-info         Hide verbose diagnostics
           -h, --help                  Show help
 
         Default config path:
@@ -366,12 +363,12 @@ def print_list_targets(config: dict, *, scope: str | None = None) -> None:
             print(f"   {c(name, Color.BOLD):<20} {desc}")
 
 
-def print_targets_overview(
-    jobs: list[ConfigJob], plan: Plan, user_ui_defaults: dict[str, object] | None
-) -> None:
+def print_targets_overview(jobs: list[ConfigJob], plan: Plan) -> None:
     prepared: list[tuple[ConfigJob, dict, bool]] = []
     for job in jobs:
-        config = apply_ui_overrides(deepcopy(job.config), plan, user_ui_defaults)
+        config = deepcopy(job.config)
+        if plan.extra_info is not None:
+            config["extra_info"] = bool(plan.extra_info)
         prepared.append((job, config, extra_info_enabled(config)))
 
     sel = selinux_info() if any(show_extra for _, _, show_extra in prepared) else None
@@ -499,8 +496,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         jobs = discover_config_jobs_for_run(plan)
-        user_ui_defaults = load_user_ui_defaults() if should_apply_user_ui_defaults(plan) else None
-
         if plan.list_configs:
             print_config_jobs(jobs)
             return 0
@@ -510,14 +505,16 @@ def main(argv: list[str] | None = None) -> int:
 
         if plan.show_config:
             for job in jobs:
-                config = apply_ui_overrides(deepcopy(job.config), plan, user_ui_defaults)
+                config = deepcopy(job.config)
+                if plan.extra_info is not None:
+                    config["extra_info"] = bool(plan.extra_info)
                 show_extra = extra_info_enabled(config)
                 sel = selinux_info() if show_extra else None
                 print_summary(config, job.path, selinux=sel, show_extra=show_extra)
             return 0
 
         if plan.list_targets and not plan.mode:
-            print_targets_overview(jobs, plan, user_ui_defaults)
+            print_targets_overview(jobs, plan)
             return 0
 
         if plan.list_versions_target is not None and not plan.mode:
@@ -549,7 +546,8 @@ def main(argv: list[str] | None = None) -> int:
                 config["backup_dir"] = plan.backup_dir_override
             if plan.restore_root_override:
                 config["restore_root"] = plan.restore_root_override
-            config = apply_ui_overrides(config, plan, user_ui_defaults)
+            if plan.extra_info is not None:
+                config["extra_info"] = bool(plan.extra_info)
 
             targets = selected_job_targets(job, plan)
             if plan.version is not None and len(targets) != 1:

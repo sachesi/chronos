@@ -33,7 +33,6 @@ def test_list_targets_default_is_compact_and_quiet() -> None:
         redirect_stdout(buf),
         patch("chronos.cli.parse_args", return_value=plan),
         patch("chronos.cli.discover_config_jobs_for_run", return_value=[_job()]),
-        patch("chronos.cli.load_user_ui_defaults", return_value=None),
     ):
         rc = cli.main([])
 
@@ -59,7 +58,6 @@ def test_list_targets_extra_info_shows_selinux() -> None:
         redirect_stdout(buf),
         patch("chronos.cli.parse_args", return_value=plan),
         patch("chronos.cli.discover_config_jobs_for_run", return_value=[_job()]),
-        patch("chronos.cli.load_user_ui_defaults", return_value=None),
         patch(
             "chronos.cli.selinux_info",
             return_value=SELinuxInfo(present=True, enabled=True, enforcing=True),
@@ -82,7 +80,6 @@ def test_show_config_uses_targets_label_not_all_targets() -> None:
         redirect_stdout(buf),
         patch("chronos.cli.parse_args", return_value=plan),
         patch("chronos.cli.discover_config_jobs_for_run", return_value=[_job(scope="system")]),
-        patch("chronos.cli.load_user_ui_defaults", return_value=None),
     ):
         rc = cli.main([])
 
@@ -108,7 +105,6 @@ def test_list_targets_groups_by_scope() -> None:
         redirect_stdout(buf),
         patch("chronos.cli.parse_args", return_value=plan),
         patch("chronos.cli.discover_config_jobs_for_run", return_value=jobs),
-        patch("chronos.cli.load_user_ui_defaults", return_value=None),
     ):
         rc = cli.main([])
 
@@ -138,7 +134,6 @@ def test_backup_output_is_grouped_once_without_repeated_sections() -> None:
         patch("chronos.cli.maybe_sudo_escalate", return_value=([system_job, user_job], False)),
         patch("chronos.cli.require_tool"),
         patch("chronos.cli.selinux_info", return_value=SELinuxInfo(True, True, True)),
-        patch("chronos.cli.load_user_ui_defaults", return_value=None),
         patch("chronos.cli.selected_job_targets", side_effect=[["root"], ["projects"]]),
         patch("chronos.cli.ensure_backup_mount"),
         patch("chronos.cli.confirm_restore"),
@@ -180,7 +175,6 @@ def test_backup_default_hides_incomplete_for_versioned_target() -> None:
         patch("chronos.cli.maybe_sudo_escalate", return_value=([user_job], False)),
         patch("chronos.cli.require_tool"),
         patch("chronos.cli.selinux_info", return_value=SELinuxInfo(True, True, True)),
-        patch("chronos.cli.load_user_ui_defaults", return_value=None),
         patch("chronos.cli.selected_job_targets", return_value=["projects"]),
         patch("chronos.cli.ensure_backup_mount"),
         patch("chronos.cli.confirm_restore"),
@@ -212,7 +206,6 @@ def test_ascii_mode_uses_ascii_glyphs(monkeypatch) -> None:
         patch("chronos.cli.maybe_sudo_escalate", return_value=([user_job], False)),
         patch("chronos.cli.require_tool"),
         patch("chronos.cli.selinux_info", return_value=SELinuxInfo(True, True, True)),
-        patch("chronos.cli.load_user_ui_defaults", return_value=None),
         patch("chronos.cli.selected_job_targets", return_value=["projects"]),
         patch("chronos.cli.ensure_backup_mount"),
         patch("chronos.cli.confirm_restore"),

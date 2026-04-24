@@ -26,7 +26,7 @@ Service command:
 /usr/bin/chronos backup --scope user --all-configs --no-sudo --no-interactive --no-extra-info
 ```
 
-This backs up **user-scope configs only** (`~/.config/chronos/*.toml`, excluding `config.toml`).
+This backs up **user-scope configs only** (`~/.config/chronos/*.toml`, including `config.toml`).
 
 ## Enable timers
 Timers are installed by the package but are **not enabled automatically**.

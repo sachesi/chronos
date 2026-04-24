@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from contextlib import redirect_stdout
 from pathlib import Path
+import pytest
 
 from chronos.cli import print_list_targets
 from chronos.config import (
@@ -54,6 +55,27 @@ def test_user_config_does_not_inherit_builtin_targets(monkeypatch, tmp_path: Pat
     assert len(jobs) == 1
     assert set(jobs[0].config["targets"]) == {"projects"}
     assert jobs[0].config["all_targets"] == ["projects"]
+
+
+def test_user_config_paths_include_config_toml(monkeypatch, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _write(home / ".config/chronos/config.toml", _user_target_config("projects"))
+    _write(home / ".config/chronos/blender.toml", _user_target_config("blender"))
+    monkeypatch.setenv("CHRONOS_ORIGINAL_HOME", str(home))
+
+    jobs = load_user_config_jobs()
+    names = sorted(job.path.name for job in jobs if job.path is not None)
+    assert names == ["blender.toml", "config.toml"]
+
+
+def test_list_targets_includes_user_config_toml_job(monkeypatch, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _write(home / ".config/chronos/config.toml", _user_target_config("projects"))
+    monkeypatch.setenv("CHRONOS_ORIGINAL_HOME", str(home))
+    jobs = discover_config_jobs_for_run(Plan(mode="backup", selections=["all"], scope="auto"))
+    assert len(jobs) == 1
+    assert jobs[0].scope == "user"
+    assert jobs[0].path is not None and jobs[0].path.name == "config.toml"
 
 
 def test_system_config_does_not_inherit_home_target(monkeypatch, tmp_path: Path) -> None:
@@ -122,6 +144,16 @@ def test_target_selection_matches_only_correct_scoped_job(monkeypatch, tmp_path:
     assert blender_jobs[0].display_name.endswith("blender.toml")
 
 
+def test_target_selection_finds_projects_in_user_config_toml(monkeypatch, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _write(home / ".config/chronos/config.toml", _user_target_config("projects"))
+    monkeypatch.setenv("CHRONOS_ORIGINAL_HOME", str(home))
+    jobs = discover_config_jobs_for_run(Plan(mode="backup", selections=["projects"], scope="auto"))
+    assert len(jobs) == 1
+    assert jobs[0].scope == "user"
+    assert jobs[0].path is not None and jobs[0].path.name == "config.toml"
+
+
 def test_builtin_fallback_still_works_without_any_configs(monkeypatch, tmp_path: Path) -> None:
     home = tmp_path / "home"
     monkeypatch.setenv("CHRONOS_ORIGINAL_HOME", str(home))
@@ -132,3 +164,24 @@ def test_builtin_fallback_still_works_without_any_configs(monkeypatch, tmp_path:
     assert len(jobs) == 1
     assert jobs[0].scope == "builtin"
     assert "root" in jobs[0].config["targets"]
+
+
+def test_ui_table_is_rejected(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "bad.toml"
+    _write(
+        cfg_path,
+        """
+backup_dir = "/mnt/storage/bak"
+restore_root = "/"
+all_targets = ["projects"]
+
+[ui]
+extra-info = true
+
+[targets.projects]
+src = "/mnt/data0/projects/"
+dst = "projects"
+""",
+    )
+    with pytest.raises(RuntimeError, match="unknown top-level key\\(s\\): ui"):
+        load_config(cfg_path)

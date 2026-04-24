@@ -18,10 +18,6 @@ preserve_xattrs = true
 preserve_hardlinks = true
 progress = true
 
-[ui]
-progress = "none"
-extra-info = false
-
 [rsync]
 extra_backup_args = []
 extra_restore_args = []

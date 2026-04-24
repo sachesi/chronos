@@ -49,21 +49,6 @@ preserve_acls = true
 preserve_xattrs = true
 preserve_hardlinks = true
 progress = true
-# Deprecated compatibility key. Prefer [ui].progress below.
-progress_style = "chronos"
-
-[ui]
-# Values:
-#   "chronos" - default compact one-line parser from rsync --info=progress2
-#   "rsync"   - raw rsync --info=progress2 output
-#   "none"    - no progress output
-#   "auto"    - chronos on a TTY, none when redirected/logged
-progress = "chronos"
-
-# Show extra diagnostic details such as the full rsync command.
-# Disabled by default to keep backup output readable.
-extra-info = false
-# When false, hides rsync command preview and SELinux/xattr detail lines.
 
 [rsync]
 # Extra arguments appended to every backup/restore rsync call.

@@ -56,4 +56,4 @@ chronos -ra
 
 ## Not implemented as CLI flags
 
-- `--progress` is **not** an implemented CLI flag. Progress mode is configured via `[ui].progress` and top-level `progress`.
+- `--progress` is **not** an implemented CLI flag. Progress is handled automatically for interactive vs non-interactive output.
