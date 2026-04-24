@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Chronos user backup daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30min
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

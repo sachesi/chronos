@@ -1,0 +1,11 @@
+[Unit]
+Description=Chronos system backup
+Documentation=https://github.com/sachesi/chronos
+ConditionPathExists=/etc/chronos/config.toml
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/chronos backup --scope system --all-configs --no-interactive --no-extra-info
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

@@ -1,0 +1,10 @@
+[Unit]
+Description=Chronos user backup
+Documentation=https://github.com/sachesi/chronos
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/chronos backup --scope user --all-configs --no-sudo --no-interactive --no-extra-info
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
