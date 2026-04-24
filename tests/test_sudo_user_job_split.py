@@ -39,9 +39,10 @@ def test_maybe_sudo_escalate_runs_only_system_jobs_as_root() -> None:
         patch("chronos.cli.sys.argv", ["chronos", "-ba"]),
     ):
         run_mock.return_value.returncode = 0
-        remaining_jobs = cli.maybe_sudo_escalate(jobs, plan)
+        remaining_jobs, system_phase_ran = cli.maybe_sudo_escalate(jobs, plan)
 
     assert [job.scope for job in remaining_jobs] == ["user"]
+    assert system_phase_ran is True
     assert run_mock.call_count == 1
     cmd = run_mock.call_args.args[0]
     assert "--internal-system-only" in cmd
@@ -55,10 +56,10 @@ def test_main_runs_user_jobs_after_system_sudo_step() -> None:
         patch("chronos.cli.parse_args", return_value=Plan(mode="backup", selections=["all"])),
         patch("chronos.cli.validate_plan"),
         patch("chronos.cli.discover_config_jobs_for_run", return_value=jobs),
-        patch("chronos.cli.maybe_sudo_escalate", return_value=[jobs[1]]),
+        patch("chronos.cli.maybe_sudo_escalate", return_value=([jobs[1]], False)),
         patch("chronos.cli.require_tool"),
         patch("chronos.cli.selinux_info", return_value=None),
-        patch("chronos.cli.print_config_jobs"),
+        patch("chronos.cli.print_run_header"),
         patch("chronos.cli.print_summary"),
         patch("chronos.cli.ensure_backup_mount"),
         patch("chronos.cli.confirm_restore"),

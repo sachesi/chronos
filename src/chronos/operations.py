@@ -11,7 +11,7 @@ from .fs import (
     selinux_xattr_policy,
     warn_selinux_metadata_loss,
 )
-from .output import info, ok, section, warn
+from .output import info, ok, warn
 from .rsync import (
     append_excludes,
     backup_excludes_for_target,
@@ -141,20 +141,21 @@ def backup_target(
     else:
         destination_for_rsync.mkdir(parents=True, exist_ok=True)
 
-    section(f"backup {target}")
-    info(f"source:      {src}")
-    info(f"destination: {destination_for_rsync}")
+    show_extra = extra_info_enabled(config)
+    if show_extra:
+        info(f"[{target}] source:      {src}")
+        info(f"[{target}] destination: {destination_for_rsync}")
 
     source_fs = filesystem_info(src)
     dest_fs = filesystem_info(destination_for_rsync)
-    info(f"source fs:   {source_fs.summary()}")
-    info(f"dest fs:     {dest_fs.summary()}")
+    if show_extra:
+        info(f"[{target}] source fs:   {source_fs.summary()}")
+        info(f"[{target}] dest fs:     {dest_fs.summary()}")
 
     metadata = decide_metadata(
         config, target_config, source_fs, dest_fs,
         dest_path=destination_for_rsync, mode="backup", selinux=selinux,
     )
-    show_extra = extra_info_enabled(config)
     if show_extra and metadata.preserve_xattrs and selinux.present and target in ("root", "home"):
         info(f"SELinux xattrs: {metadata.selinux_label_action}")
     warn_selinux_metadata_loss(selinux, target, metadata, show=show_extra)
@@ -198,7 +199,8 @@ def backup_target(
         else:
             shutil.rmtree(incomplete_dir, ignore_errors=True)
 
-    ok(f"backup finished: {target}")
+    if show_extra:
+        ok(f"backup finished: {target}")
 
 
 # ---------------------------------------------------------------------------
@@ -221,20 +223,21 @@ def restore_target(
     dst.mkdir(parents=True, exist_ok=True)
     create_restore_dirs(config, target)
 
-    section(f"restore {target}")
-    info(f"source:      {src}")
-    info(f"destination: {dst}")
+    show_extra = extra_info_enabled(config)
+    if show_extra:
+        info(f"[{target}] source:      {src}")
+        info(f"[{target}] destination: {dst}")
 
     source_fs = filesystem_info(src)
     dest_fs = filesystem_info(dst)
-    info(f"source fs:   {source_fs.summary()}")
-    info(f"dest fs:     {dest_fs.summary()}")
+    if show_extra:
+        info(f"[{target}] source fs:   {source_fs.summary()}")
+        info(f"[{target}] dest fs:     {dest_fs.summary()}")
 
     metadata = decide_metadata(
         config, target_config, source_fs, dest_fs,
         dest_path=dst, mode="restore", selinux=selinux,
     )
-    show_extra = extra_info_enabled(config)
     if show_extra and metadata.preserve_xattrs and selinux.present and target in ("root", "home"):
         info(f"SELinux xattrs: {metadata.selinux_label_action}")
     warn_selinux_metadata_loss(selinux, target, metadata, show=show_extra)
@@ -256,7 +259,8 @@ def restore_target(
         except OSError:
             warn("could not create .autorelabel")
 
-    ok(f"restore finished: {target}")
+    if show_extra:
+        ok(f"restore finished: {target}")
 
 
 # ---------------------------------------------------------------------------

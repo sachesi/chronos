@@ -244,10 +244,10 @@ def validate_plan(plan: Plan) -> None:
 # ---------------------------------------------------------------------------
 
 
-def maybe_sudo_escalate(jobs: list[ConfigJob], plan: Plan) -> list[ConfigJob]:
+def maybe_sudo_escalate(jobs: list[ConfigJob], plan: Plan) -> tuple[list[ConfigJob], bool]:
     """Run system jobs with sudo when needed while keeping user jobs in user context."""
     if plan.internal_system_only:
-        return [job for job in jobs if job.scope != "user"]
+        return [job for job in jobs if job.scope != "user"], False
 
     split_by_scope = plan.config_path is None and plan.scope == "auto"
     if split_by_scope:
@@ -258,7 +258,7 @@ def maybe_sudo_escalate(jobs: list[ConfigJob], plan: Plan) -> list[ConfigJob]:
         user_jobs = []
 
     if os.geteuid() == 0:
-        return system_jobs if plan.internal_system_only else jobs
+        return system_jobs if plan.internal_system_only else jobs, False
 
     needs_any_root = False
     for job in system_jobs:
@@ -268,7 +268,7 @@ def maybe_sudo_escalate(jobs: list[ConfigJob], plan: Plan) -> list[ConfigJob]:
             break
 
     if not needs_any_root:
-        return jobs
+        return jobs, False
 
     if plan.no_sudo:
         raise ChronosError("selected target requires root, but sudo escalation is disabled")
@@ -293,7 +293,7 @@ def maybe_sudo_escalate(jobs: list[ConfigJob], plan: Plan) -> list[ConfigJob]:
     if result.returncode != 0:
         raise ChronosError(f"system job run with sudo failed (exit status {result.returncode})")
 
-    return user_jobs
+    return user_jobs, True
 
 
 def _original_user_name() -> str:
@@ -436,6 +436,51 @@ def print_config_jobs(jobs: list[ConfigJob]) -> None:
         print(f"  {job.scope:<8} {job.display_name}")
 
 
+def print_run_header(plan: Plan) -> None:
+    title = f"{APP_NAME} {plan.mode}"
+    if plan.dry_run:
+        title += " dry-run"
+    section(title)
+    if plan.dry_run:
+        info("dry-run: no files will be changed")
+
+
+def print_job_header(
+    job: ConfigJob,
+    config: dict[str, object],
+    targets: list[str],
+    *,
+    mode: str,
+    show_extra: bool,
+    selinux,
+) -> None:
+    print()
+    print(c(job.scope, Color.BOLD))
+    print(f"  {c('config:', Color.BOLD)}  {job.path if job.path else '(built-in defaults)'}")
+    print(f"  {c('backup:', Color.BOLD)}  {config['backup_dir']}")
+    print(f"  {c('targets:', Color.BOLD)} {', '.join(targets)}")
+    if mode == "restore":
+        print(f"  {c('restore root:', Color.BOLD)} {config['restore_root']}")
+    if show_extra:
+        print(f"  {c('version:', Color.BOLD)} {__version__}")
+        if selinux is not None:
+            print(f"  {c('SELinux:', Color.BOLD)} {selinux.summary()}")
+    print()
+
+
+def display_target_source(config: dict, target: str) -> str:
+    target_config = config["targets"][target]
+    return target_config.get("src") or ", ".join(target_config.get("src_candidates", []))
+
+
+def display_target_destination(config: dict, target: str, mode: str) -> Path:
+    destination = backup_dest(config, target)
+    target_config = config["targets"][target]
+    if mode == "backup" and bool(target_config.get("versioned", False)):
+        return destination / "current"
+    return destination
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -485,14 +530,16 @@ def main(argv: list[str] | None = None) -> int:
             print(usage())
             return 2
 
-        jobs = maybe_sudo_escalate(jobs, plan)
+        jobs, system_phase_ran = maybe_sudo_escalate(jobs, plan)
 
         require_tool("rsync")
         require_tool("findmnt")
         require_tool("mountpoint")
 
         sel = selinux_info()
-        print_config_jobs(jobs)
+        if not system_phase_ran or not jobs:
+            print_run_header(plan)
+        scope_counts: dict[str, int] = {}
 
         for job in jobs:
             config = deepcopy(job.config)
@@ -512,7 +559,14 @@ def main(argv: list[str] | None = None) -> int:
                     )
 
             show_extra = extra_info_enabled(config)
-            print_summary(config, job.path, targets, selinux=sel, show_extra=show_extra)
+            print_job_header(
+                job,
+                config,
+                targets,
+                mode=plan.mode,
+                show_extra=show_extra,
+                selinux=sel if show_extra else None,
+            )
             if plan.list_targets:
                 print_list_targets(config)
                 continue
@@ -525,6 +579,9 @@ def main(argv: list[str] | None = None) -> int:
             with backup_scope_lock(config, job, targets):
                 confirm_restore(config, plan, targets)
                 for target in targets:
+                    source = display_target_source(config, target)
+                    destination = display_target_destination(config, target, plan.mode)
+                    print(f"  {c(target, Color.BOLD):<10} {source:<26} -> {destination}")
                     with target_lock(config, target):
                         if plan.mode == "backup":
                             backup_target(config, target, dry_run=plan.dry_run, selinux=sel)
@@ -536,9 +593,11 @@ def main(argv: list[str] | None = None) -> int:
                                 selinux=sel,
                                 requested_version=plan.version,
                             )
+                        scope_counts[job.scope] = scope_counts.get(job.scope, 0) + 1
 
         section("done")
-        ok("all selected operations completed")
+        for scope, completed in sorted(scope_counts.items()):
+            print(f"  {scope:<8} {completed} completed")
         return 0
 
     except KeyboardInterrupt:
