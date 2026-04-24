@@ -1,6 +1,6 @@
 backup_dir = "/mnt/storage/bak"
 restore_root = "/"
-all_targets = ["root", "boot", "efi"]
+all_targets = ["root"]
 
 require_backup_mount = true
 confirm_restore_to_live_root = true
@@ -16,11 +16,6 @@ numeric_ids = true
 preserve_acls = true
 preserve_xattrs = true
 preserve_hardlinks = true
-progress = true
-
-[ui]
-progress = "none"
-extra-info = false
 
 [rsync]
 extra_backup_args = []

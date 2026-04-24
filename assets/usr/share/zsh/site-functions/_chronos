@@ -11,7 +11,8 @@ _arguments -s -S \
   '(-y --yes)'{-y,--yes}'[skip restore confirmation]' \
   '--backup-dir[override backup directory]:directory:_files -/' \
   '--restore-root[override restore root]:directory:_files -/' \
-  '--init-config[create default config]' \
+  '--from-version[restore from backup version]:version name:' \
+  '--list-versions[list backup versions for target]:target:' \
   '--show-config[show config summary]' \
   '--list-targets[list configured targets]' \
   '--extra-info[show verbose diagnostics, including rsync command]' \

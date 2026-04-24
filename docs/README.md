@@ -12,8 +12,7 @@ Chronos is a Linux backup/restore CLI built around `rsync`. It is configuration-
 Chronos separates jobs by configuration scope:
 
 - **System scope**: `/etc/chronos/config.toml` plus `/etc/chronos/config.toml.d/*.toml` merged in lexical order.
-- **User scope**: every `~/.config/chronos/*.toml` file **except** `config.toml`; each file is a separate backup job.
-- **User UI defaults file**: `~/.config/chronos/config.toml` is reserved for `[ui]` defaults only.
+- **User scope**: every `~/.config/chronos/*.toml` file (including `config.toml`); each file is a separate backup job.
 
 Operationally:
 
@@ -31,8 +30,8 @@ chronos -ra
 Enable timers (examples):
 
 ```bash
-sudo systemctl enable --now chronos-backup.timer
-systemctl --user enable --now chronos-user-backup.timer
+sudo systemctl enable --now chronos.timer
+systemctl --user enable --now chronos.timer
 ```
 
 ## Table of contents

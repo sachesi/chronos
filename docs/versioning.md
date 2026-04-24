@@ -42,6 +42,6 @@ After successful versioned backup, Chronos prunes old version directories:
 - ignores unexpected names/symlinks outside expected safety constraints
 
 ## Restore behavior
-- Without `--version`, restore uses `current`.
-- With `--version NAME`, restore uses `versions/NAME`.
-- `--version` is rejected for non-versioned targets.
+- Without `--from-version`, restore uses `current`.
+- With `--from-version NAME`, restore uses `versions/NAME`.
+- `--from-version` is rejected for non-versioned targets.

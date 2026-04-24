@@ -5,8 +5,7 @@ Chronos uses these paths:
 
 - `/etc/chronos/config.toml`
 - `/etc/chronos/config.toml.d/*.toml`
-- `~/.config/chronos/config.toml` (UI defaults only)
-- `~/.config/chronos/*.toml` (user backup jobs; `config.toml` excluded)
+- `~/.config/chronos/*.toml` (user backup jobs, including `config.toml`)
 
 ## Merge and separation rules
 
@@ -20,19 +19,14 @@ System config is merged in this order:
 Later files override earlier values (deep merge for tables).
 
 ### User scope
-Each user job file (`~/.config/chronos/*.toml`, excluding `config.toml`) is loaded as an independent job by merging:
+Each user job file (`~/.config/chronos/*.toml`, including `config.toml`) is loaded as an independent job by merging:
 
 1. Built-in defaults
 2. That one user job file
 
 User job files are **not** merged together.
 
-### `~/.config/chronos/config.toml`
-This file is reserved for `[ui]` only. Non-`ui` keys are rejected. Its UI keys are applied only in default manual auto-scope runs (not with `--config`, and not with `--no-interactive`).
-
-## Per-job vs UI-only
-
-### Per-job keys
+## Per-job keys
 These affect backup/restore behavior:
 
 - `backup_dir`, `restore_root`, `all_targets`
@@ -41,17 +35,9 @@ These affect backup/restore behavior:
 - `touch_autorelabel`, `selinux_xattrs`
 - `delete`, `delete_excluded`, `exclude_container_storage`
 - `numeric_ids`, `preserve_acls`, `preserve_xattrs`, `preserve_hardlinks`
-- `progress` (global on/off)
 - `[rsync]` (`extra_backup_args`, `extra_restore_args`)
 - `[presets]`
 - `[targets.*]`
-
-### UI-only keys
-- `[ui].progress` (`chronos`, `rsync`, `none`, `auto`)
-- `[ui].extra-info` (`true`/`false`)
-
-Compatibility keys still accepted:
-- top-level `progress_style` (legacy alternative to `[ui].progress`)
 
 ## Full key reference
 
@@ -73,12 +59,6 @@ Compatibility keys still accepted:
 - `preserve_acls` (bool): include `-A` when supported.
 - `preserve_xattrs` (bool): include `-X` when supported.
 - `preserve_hardlinks` (bool): include `-H`.
-- `progress` (bool): global progress enable/disable.
-- `progress_style` (string, deprecated): legacy UI progress style.
-
-### `[ui]`
-- `progress` (string): `chronos`, `rsync`, `none`, `auto`.
-- `extra-info` (bool): show command and metadata diagnostic detail.
 
 ### `[rsync]`
 - `extra_backup_args` (array[string])

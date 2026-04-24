@@ -1,10 +1,6 @@
 backup_dir = "/mnt/storage/bak"
 all_targets = ["games"]
 
-[ui]
-progress = "chronos"
-extra-info = false
-
 [targets.games]
 src = "~/Games/"
 dst = "games"

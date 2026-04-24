@@ -51,9 +51,6 @@ ALLOWED_TOP_LEVEL_KEYS = {
     "preserve_acls",
     "preserve_xattrs",
     "preserve_hardlinks",
-    "progress",
-    "progress_style",
-    "ui",
     "rsync",
     "presets",
     "targets",
@@ -66,8 +63,8 @@ backup_dir = "/mnt/storage/bak"
 restore_root = "/"
 
 # What -a / all means.
-# boot and efi are available as explicit targets, but not included by default.
-all_targets = ["root", "home"]
+# home, boot, and efi are available as explicit targets, but not included by default.
+all_targets = ["root"]
 
 # Ask before restoring to the live running root filesystem.
 confirm_restore_to_live_root = true
@@ -109,21 +106,6 @@ numeric_ids = true
 preserve_acls = true
 preserve_xattrs = true
 preserve_hardlinks = true
-progress = true
-# Deprecated compatibility key. Prefer [ui].progress below.
-progress_style = "chronos"
-
-[ui]
-# Values:
-#   "chronos" - default compact one-line parser from rsync --info=progress2
-#   "rsync"   - raw rsync --info=progress2 output
-#   "none"    - no progress output
-#   "auto"    - chronos on a TTY, none when redirected/logged
-progress = "chronos"
-
-# Show extra diagnostic details such as the full rsync command.
-# Disabled by default to keep backup output readable.
-extra-info = false
 
 [rsync]
 # Extra arguments appended to every backup/restore rsync call.
@@ -237,7 +219,7 @@ restore_exclude = [
 DEFAULT_CONFIG: dict[str, Any] = {
     "backup_dir": "/mnt/storage/bak",
     "restore_root": "/",
-    "all_targets": ["root", "home"],
+    "all_targets": ["root"],
     "confirm_restore_to_live_root": True,
     "require_backup_mount": True,
     "check_filesystems": True,
@@ -251,12 +233,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "preserve_acls": True,
     "preserve_xattrs": True,
     "preserve_hardlinks": True,
-    "progress": True,
-    "progress_style": "chronos",
-    "ui": {
-        "progress": "chronos",
-        "extra-info": False,
-    },
     "rsync": {
         "extra_backup_args": [],
         "extra_restore_args": [],
@@ -333,6 +309,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
 }
+
+FILE_CONFIG_BASE: dict[str, Any] = deepcopy(DEFAULT_CONFIG)
+FILE_CONFIG_BASE["all_targets"] = []
+FILE_CONFIG_BASE["presets"] = {}
+FILE_CONFIG_BASE["targets"] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -415,9 +396,13 @@ def user_config_paths() -> list[Path]:
     out: list[Path] = []
     for p in sorted(cfg_dir.glob("*.toml")):
         name = p.name
-        if name.startswith(".") or name.endswith(".bak") or name.endswith(".tmp"):
-            continue
-        if name == "config.toml":
+        if (
+            name.startswith(".")
+            or name.endswith(".bak")
+            or name.endswith(".tmp")
+            or name.endswith(".rpmnew")
+            or name.endswith(".rpmsave")
+        ):
             continue
         if p.is_file():
             out.append(p)
@@ -619,12 +604,10 @@ def validate_config(config: dict[str, Any], config_path: Path | None) -> dict[st
         "confirm_restore_to_live_root", "require_backup_mount", "check_filesystems",
         "auto_disable_unsupported_metadata", "delete", "delete_excluded",
         "exclude_container_storage", "numeric_ids",
-        "preserve_acls", "preserve_xattrs", "preserve_hardlinks", "progress",
+        "preserve_acls", "preserve_xattrs", "preserve_hardlinks",
     ):
         require_bool(config, key, config_path)
 
-    require_string(config, "progress_style", config_path, non_empty=True)
-    ui = require_table(config, "ui", config_path)
     rsync = require_table(config, "rsync", config_path)
     require_table(config, "presets", config_path)
     require_table(config, "targets", config_path)
@@ -638,13 +621,6 @@ def validate_config(config: dict[str, Any], config_path: Path | None) -> dict[st
         raise config_error(
             config_path, 'selinux_xattrs must be "auto", "preserve", or "exclude"'
         )
-
-    ui_progress = require_string(ui, "progress", config_path, scope="ui", non_empty=True)
-    if ui_progress not in {"chronos", "rsync", "none", "auto"}:
-        raise config_error(
-            config_path, 'ui.progress must be "chronos", "rsync", "none", or "auto"'
-        )
-    require_bool(ui, "extra-info", config_path, scope="ui")
 
     require_string_list(rsync, "extra_backup_args", config_path, scope="rsync")
     require_string_list(rsync, "extra_restore_args", config_path, scope="rsync")
@@ -684,11 +660,14 @@ def load_config(path: Path | None) -> tuple[dict[str, Any], Path | None]:
         path = default_config_path()
         if not path.exists():
             return deepcopy(DEFAULT_CONFIG), None
+        base_config = DEFAULT_CONFIG
     elif not path.exists():
         raise ChronosError(f"config file does not exist: {path}")
+    else:
+        base_config = FILE_CONFIG_BASE
 
     user_config = load_config_file(path)
-    config = deep_merge(DEFAULT_CONFIG, user_config)
+    config = deep_merge(base_config, user_config)
     return validate_config(config, path), path
 
 
@@ -696,7 +675,7 @@ def load_merged_system_config() -> ConfigJob | None:
     paths = system_config_paths()
     if not paths:
         return None
-    merged = deepcopy(DEFAULT_CONFIG)
+    merged = deepcopy(FILE_CONFIG_BASE)
     for path in paths:
         merged = deep_merge(merged, load_config_file(path))
     validated = validate_config(
@@ -714,7 +693,7 @@ def load_merged_system_config() -> ConfigJob | None:
 def load_user_config_jobs() -> list[ConfigJob]:
     jobs: list[ConfigJob] = []
     for path in user_config_paths():
-        cfg = deep_merge(DEFAULT_CONFIG, load_config_file(path))
+        cfg = deep_merge(FILE_CONFIG_BASE, load_config_file(path))
         jobs.append(
             ConfigJob(
                 path=path,
@@ -724,29 +703,6 @@ def load_user_config_jobs() -> list[ConfigJob]:
             )
         )
     return jobs
-
-
-def validate_ui_defaults_only(path: Path, config_data: dict[str, Any]) -> dict[str, Any]:
-    non_ui_keys = sorted(k for k in config_data.keys() if k != "ui")
-    if non_ui_keys:
-        raise ChronosError(
-            f"{path} is reserved for user UI defaults; move backup targets to "
-            "projects.toml, games.toml, etc."
-        )
-    ui = config_data.get("ui", {})
-    if not isinstance(ui, dict):
-        raise ChronosError(f"invalid config ({path}): ui must be a table")
-    merged = deep_merge(DEFAULT_CONFIG, {"ui": ui})
-    validated = validate_config(merged, path)
-    return dict(validated.get("ui", {}))
-
-
-def load_user_ui_defaults() -> dict[str, Any] | None:
-    path = user_config_dir() / "config.toml"
-    if not path.exists():
-        return None
-    config_data = load_config_file(path)
-    return validate_ui_defaults_only(path, config_data)
 
 
 def write_default_config(path: Path | None = None) -> None:
@@ -928,34 +884,5 @@ def backup_dest(config: dict[str, Any], target: str) -> Path:
     return target_backup_root(config, config["targets"][target], target=target)
 
 
-# ---------------------------------------------------------------------------
-# UI override helpers
-# ---------------------------------------------------------------------------
-
 def extra_info_enabled(config: dict[str, Any]) -> bool:
-    ui = config.get("ui", {})
-    if isinstance(ui, dict):
-        if "extra-info" in ui:
-            return bool(ui.get("extra-info"))
-        if "extra_info" in ui:
-            return bool(ui.get("extra_info"))
     return bool(config.get("extra_info", False))
-
-
-def should_apply_user_ui_defaults(plan: Plan) -> bool:
-    if plan.no_interactive:
-        return False
-    if plan.config_path is not None:
-        return False
-    return plan.scope == "auto"
-
-
-def apply_ui_overrides(
-    config: dict[str, Any], plan: Plan, user_ui_defaults: dict[str, Any] | None
-) -> dict[str, Any]:
-    effective = deepcopy(config)
-    if should_apply_user_ui_defaults(plan) and user_ui_defaults:
-        effective["ui"] = deep_merge(effective.get("ui", {}), user_ui_defaults)
-    if plan.extra_info is not None:
-        effective.setdefault("ui", {})["extra-info"] = plan.extra_info
-    return effective

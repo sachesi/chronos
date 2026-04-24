@@ -37,10 +37,10 @@ chronos -ra --restore-root /mnt/sysroot
 For a versioned target:
 
 ```bash
-chronos -r projects --version 20260424-213001
+chronos -r projects --from-version 20260424-213001
 ```
 
-Without `--version`, restore uses the target `current` symlink.
+Without `--from-version`, restore uses the target `current` symlink.
 
 ## Notes for root/efi/boot
 - `root`: after restore, Chronos can create `.autorelabel` when SELinux relabel is appropriate.

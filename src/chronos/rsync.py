@@ -37,24 +37,9 @@ PROGRESS_RE = re.compile(
 # ---------------------------------------------------------------------------
 
 def configured_progress_style(config: dict[str, Any]) -> str:
-    """Return the requested UI progress style from config."""
-    ui = config.get("ui", {})
-    if isinstance(ui, dict) and "progress" in ui:
-        value = ui.get("progress", "chronos")
-    else:
-        value = config.get("progress_style", "chronos")
-
-    style = str(value).strip().lower()
-    aliases = {
-        "": "chronos", "true": "chronos", "yes": "chronos", "on": "chronos",
-        "false": "none", "no": "none", "off": "none", "quiet": "none",
-        "raw": "rsync",
-    }
-    style = aliases.get(style, style)
-    if style not in {"auto", "chronos", "rsync", "none"}:
-        warn(f"unknown ui progress style {style!r}; using chronos")
-        style = "chronos"
-    return style
+    """Return the runtime progress style. Config no longer controls UI style."""
+    _ = config
+    return "auto"
 
 
 def effective_progress_style(config: dict[str, Any]) -> str:
@@ -63,8 +48,6 @@ def effective_progress_style(config: dict[str, Any]) -> str:
     Chronos' parser is useful only on an interactive TTY. When output is
     redirected or logged the safe default is no progress output.
     """
-    if not config.get("progress", True):
-        return "none"
     requested = configured_progress_style(config)
     if requested == "auto":
         return "chronos" if sys.stdout.isatty() else "none"
@@ -289,7 +272,7 @@ def build_rsync_args(
         args.append("--numeric-ids")
 
     progress_style = effective_progress_style(config)
-    if config.get("progress", True) and progress_style in {"rsync", "chronos"}:
+    if progress_style in {"rsync", "chronos"}:
         args.append("--info=progress2,name0")
 
     if config.get("delete", True):

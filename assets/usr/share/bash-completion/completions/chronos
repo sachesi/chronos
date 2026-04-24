@@ -4,7 +4,7 @@ _chronos()
     local cur prev words cword
     _init_completion || return
 
-    local opts="-h --help --version -b --backup -r --restore -a --all -c --config -n --dry-run -y --yes --backup-dir --restore-root --init-config --show-config --list-targets --extra-info --no-extra-info"
+    local opts="-h --help --version -b --backup -r --restore -a --all -c --config -n --dry-run -y --yes --backup-dir --restore-root --from-version --list-versions --show-config --list-targets --extra-info --no-extra-info"
     local modes="backup restore bak rst"
     local targets="all root home efi esp boot / /home /efi /boot /boot/efi"
 
