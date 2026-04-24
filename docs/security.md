@@ -26,7 +26,27 @@ Chronos evaluates filesystem support and SELinux behavior:
 - can create `.autorelabel` after root restore
 
 ## Backup directory locking
-Chronos uses a lock file at `<backup_dir>/.chronos.lock` with `fcntl` non-blocking exclusive lock to prevent overlapping backup runs to the same backup directory.
+Chronos uses three `fcntl` non-blocking lock levels:
+
+- **System lock**: `<backup_dir>/.chronos-system.lock`
+  - Used by system jobs and any selected target with `requires_root = true`.
+  - Prevents overlapping system orchestrators on the same `backup_dir`.
+- **User global lock**: `<backup_dir>/.chronos-user.lock`
+  - Used by user jobs when selected targets do not require root.
+  - Prevents overlapping user orchestrators on the same `backup_dir`.
+- **Target lock**: `<backup_dir>/<dst>/.chronos-target.lock`
+  - Used for each target operation (backup/restore/version/current/prune path).
+  - Prevents concurrent operations touching the same target destination.
+
+Lock acquisition order is always global scope lock first, then target lock.
+
+Permissions guidance:
+
+- user backups need write access to `<backup_dir>` to create/open `.chronos-user.lock`
+- user backups need write access to `<backup_dir>/<dst>` to create/open `.chronos-target.lock`
+- `.chronos-system.lock` may be root-owned and should not block user jobs by itself
+
+Legacy `<backup_dir>/.chronos.lock` is ignored.
 
 ## Limitations
 - Versioning is convenience retention + dedup strategy, **not** a true offline/air-gapped backup.

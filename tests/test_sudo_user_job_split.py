@@ -63,11 +63,14 @@ def test_main_runs_user_jobs_after_system_sudo_step() -> None:
         patch("chronos.cli.ensure_backup_mount"),
         patch("chronos.cli.confirm_restore"),
         patch("chronos.cli.selected_job_targets", return_value=["all"]),
-        patch("chronos.cli.backup_lock") as lock_mock,
+        patch("chronos.cli.backup_scope_lock") as scope_lock_mock,
+        patch("chronos.cli.target_lock") as target_lock_mock,
         patch("chronos.cli.backup_target") as backup_mock,
     ):
-        lock_mock.return_value.__enter__.return_value = None
-        lock_mock.return_value.__exit__.return_value = None
+        scope_lock_mock.return_value.__enter__.return_value = None
+        scope_lock_mock.return_value.__exit__.return_value = None
+        target_lock_mock.return_value.__enter__.return_value = None
+        target_lock_mock.return_value.__exit__.return_value = None
         rc = cli.main(["-ba"])
 
     assert rc == 0

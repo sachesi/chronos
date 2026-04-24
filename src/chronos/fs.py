@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import errno
 import os
 import subprocess
 import tempfile
@@ -8,9 +9,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator
 
-from .config import expand_user_path
+from .config import backup_dest, expand_user_path
 from .output import warn, info
-from .types import ChronosError, FilesystemInfo, MetadataDecision, SELinuxInfo
+from .types import ChronosError, ConfigJob, FilesystemInfo, MetadataDecision, SELinuxInfo
 
 # Filesystem types that do not support extended attributes.
 NO_XATTR_FSTYPES = {
@@ -66,19 +67,46 @@ def ensure_backup_mount(backup_dir: Path, require_mount: bool) -> None:
         )
 
 
+def lock_path_for_scope(config: dict[str, Any], kind: str) -> Path:
+    backup_dir = expand_user_path(config["backup_dir"])
+    if kind == "system":
+        return backup_dir / ".chronos-system.lock"
+    if kind == "user":
+        return backup_dir / ".chronos-user.lock"
+    raise ChronosError(f"unknown lock scope: {kind}")
+
+
+def lock_path_for_target(config: dict[str, Any], target: str) -> Path:
+    return backup_dest(config, target) / ".chronos-target.lock"
+
+
+def scope_lock_kind(job: ConfigJob, config: dict[str, Any], targets: list[str]) -> str:
+    if job.scope == "system":
+        return "system"
+    if any(bool(config["targets"][target].get("requires_root", False)) for target in targets):
+        return "system"
+    return "user"
+
+
 @contextmanager
-def backup_lock(backup_dir: Path) -> Generator[None, None, None]:
-    lock_path = backup_dir / ".chronos.lock"
+def _acquire_lock(lock_path: Path, *, open_error: str, conflict_error: str) -> Generator[None, None, None]:
     fd = None
     try:
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o660)
+    except PermissionError:
+        raise ChronosError(f"{open_error}: permission denied") from None
+    except OSError as exc:
+        detail = exc.strerror or str(exc)
+        raise ChronosError(f"{open_error}: {detail}") from None
+
+    try:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            raise ChronosError(
-                f"another chronos backup is already running for {backup_dir}"
-            ) from None
+        except OSError as exc:
+            if exc.errno in {errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES}:
+                raise ChronosError(conflict_error) from None
+            detail = exc.strerror or str(exc)
+            raise ChronosError(f"cannot lock {lock_path}: {detail}") from None
         yield
     finally:
         if fd is not None:
@@ -87,6 +115,57 @@ def backup_lock(backup_dir: Path) -> Generator[None, None, None]:
             except OSError:
                 pass
             os.close(fd)
+
+
+@contextmanager
+def backup_scope_lock(
+    config: dict[str, Any], job: ConfigJob, targets: list[str]
+) -> Generator[None, None, None]:
+    kind = scope_lock_kind(job, config, targets)
+    lock_path = lock_path_for_scope(config, kind)
+    backup_dir = expand_user_path(config["backup_dir"])
+    try:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        raise ChronosError(f"cannot create backup directory {backup_dir}: permission denied") from None
+    except OSError as exc:
+        detail = exc.strerror or str(exc)
+        raise ChronosError(f"cannot create backup directory {backup_dir}: {detail}") from None
+
+    if kind == "system":
+        open_error = f"cannot create/open system backup lock {lock_path}"
+        conflict_error = f"another chronos system backup is already running for {backup_dir}"
+    else:
+        open_error = (
+            f"cannot create/open user backup lock {lock_path}. "
+            "Ensure backup_dir is writable for user backups (group-writable), "
+            "or use a user-writable backup_dir"
+        )
+        conflict_error = f"another chronos user backup is already running for {backup_dir}"
+
+    with _acquire_lock(lock_path, open_error=open_error, conflict_error=conflict_error):
+        yield
+
+
+@contextmanager
+def target_lock(config: dict[str, Any], target: str) -> Generator[None, None, None]:
+    lock_path = lock_path_for_target(config, target)
+    target_root = lock_path.parent
+    try:
+        target_root.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        raise ChronosError(f"cannot create target directory {target_root}: permission denied") from None
+    except OSError as exc:
+        detail = exc.strerror or str(exc)
+        raise ChronosError(f"cannot create target directory {target_root}: {detail}") from None
+
+    open_error = f"cannot create/open target lock {lock_path}"
+    conflict_error = (
+        "another chronos operation is already touching "
+        f"target {target} at {target_root}"
+    )
+    with _acquire_lock(lock_path, open_error=open_error, conflict_error=conflict_error):
+        yield
 
 
 # ---------------------------------------------------------------------------

@@ -24,10 +24,11 @@ from .config import (
     write_default_config,
 )
 from .fs import (
-    backup_lock,
+    backup_scope_lock,
     ensure_backup_mount,
     require_tool,
     selinux_info,
+    target_lock,
 )
 from .operations import backup_target, confirm_restore, restore_target
 from .output import Color, c, fail, info, ok, section, warn
@@ -477,19 +478,20 @@ def main(argv: list[str] | None = None) -> int:
 
             backup_dir = expand_user_path(config["backup_dir"])
             ensure_backup_mount(backup_dir, config.get("require_backup_mount", True))
-            with backup_lock(backup_dir):
+            with backup_scope_lock(config, job, targets):
                 confirm_restore(config, plan, targets)
                 for target in targets:
-                    if plan.mode == "backup":
-                        backup_target(config, target, dry_run=plan.dry_run, selinux=sel)
-                    else:
-                        restore_target(
-                            config,
-                            target,
-                            dry_run=plan.dry_run,
-                            selinux=sel,
-                            requested_version=plan.version,
-                        )
+                    with target_lock(config, target):
+                        if plan.mode == "backup":
+                            backup_target(config, target, dry_run=plan.dry_run, selinux=sel)
+                        else:
+                            restore_target(
+                                config,
+                                target,
+                                dry_run=plan.dry_run,
+                                selinux=sel,
+                                requested_version=plan.version,
+                            )
 
         section("done")
         ok("all selected operations completed")
