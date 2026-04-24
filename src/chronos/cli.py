@@ -30,7 +30,7 @@ from .fs import (
     target_lock,
 )
 from .operations import backup_target, confirm_restore, restore_target
-from .output import Color, c, fail, format_duration, glyph, info, ok, section, warn
+from .output import Color, c, fail, format_duration, glyph, info, section, warn
 from .types import ChronosError, ConfigJob, Plan
 from .versioning import list_target_versions, resolve_current_version, validate_version_name
 

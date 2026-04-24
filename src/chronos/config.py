@@ -51,7 +51,6 @@ ALLOWED_TOP_LEVEL_KEYS = {
     "preserve_acls",
     "preserve_xattrs",
     "preserve_hardlinks",
-    "progress",
     "rsync",
     "presets",
     "targets",
@@ -64,8 +63,8 @@ backup_dir = "/mnt/storage/bak"
 restore_root = "/"
 
 # What -a / all means.
-# boot and efi are available as explicit targets, but not included by default.
-all_targets = ["root", "home"]
+# home, boot, and efi are available as explicit targets, but not included by default.
+all_targets = ["root"]
 
 # Ask before restoring to the live running root filesystem.
 confirm_restore_to_live_root = true
@@ -107,7 +106,6 @@ numeric_ids = true
 preserve_acls = true
 preserve_xattrs = true
 preserve_hardlinks = true
-progress = true
 
 [rsync]
 # Extra arguments appended to every backup/restore rsync call.
@@ -221,7 +219,7 @@ restore_exclude = [
 DEFAULT_CONFIG: dict[str, Any] = {
     "backup_dir": "/mnt/storage/bak",
     "restore_root": "/",
-    "all_targets": ["root", "home"],
+    "all_targets": ["root"],
     "confirm_restore_to_live_root": True,
     "require_backup_mount": True,
     "check_filesystems": True,
@@ -235,7 +233,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "preserve_acls": True,
     "preserve_xattrs": True,
     "preserve_hardlinks": True,
-    "progress": True,
     "rsync": {
         "extra_backup_args": [],
         "extra_restore_args": [],
@@ -607,7 +604,7 @@ def validate_config(config: dict[str, Any], config_path: Path | None) -> dict[st
         "confirm_restore_to_live_root", "require_backup_mount", "check_filesystems",
         "auto_disable_unsupported_metadata", "delete", "delete_excluded",
         "exclude_container_storage", "numeric_ids",
-        "preserve_acls", "preserve_xattrs", "preserve_hardlinks", "progress",
+        "preserve_acls", "preserve_xattrs", "preserve_hardlinks",
     ):
         require_bool(config, key, config_path)
 

@@ -5,8 +5,8 @@ backup_dir = "/mnt/storage/bak"
 restore_root = "/"
 
 # What -a / all means.
-# boot and efi are available as explicit targets, but not included by default.
-all_targets = ["root", "home"]
+# boot, efi, and home are available as explicit targets, but not included by default.
+all_targets = ["root"]
 
 # Ask before restoring to the live running root filesystem.
 confirm_restore_to_live_root = true
@@ -48,7 +48,6 @@ numeric_ids = true
 preserve_acls = true
 preserve_xattrs = true
 preserve_hardlinks = true
-progress = true
 
 [rsync]
 # Extra arguments appended to every backup/restore rsync call.

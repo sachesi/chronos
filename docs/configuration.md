@@ -59,7 +59,6 @@ These affect backup/restore behavior:
 - `preserve_acls` (bool): include `-A` when supported.
 - `preserve_xattrs` (bool): include `-X` when supported.
 - `preserve_hardlinks` (bool): include `-H`.
-- `progress` (bool): global progress enable/disable.
 
 ### `[rsync]`
 - `extra_backup_args` (array[string])

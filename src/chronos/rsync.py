@@ -272,7 +272,7 @@ def build_rsync_args(
         args.append("--numeric-ids")
 
     progress_style = effective_progress_style(config)
-    if config.get("progress", True) and progress_style in {"rsync", "chronos"}:
+    if progress_style in {"rsync", "chronos"}:
         args.append("--info=progress2,name0")
 
     if config.get("delete", True):

@@ -8,10 +8,12 @@ import pytest
 from chronos.cli import print_list_targets
 from chronos import cli
 from chronos.config import (
+    DEFAULT_CONFIG,
     discover_config_jobs_for_run,
     load_config,
     load_merged_system_config,
     load_user_config_jobs,
+    selected_targets,
 )
 from chronos.types import Plan
 
@@ -56,6 +58,16 @@ def test_user_config_does_not_inherit_builtin_targets(monkeypatch, tmp_path: Pat
     assert len(jobs) == 1
     assert set(jobs[0].config["targets"]) == {"projects"}
     assert jobs[0].config["all_targets"] == ["projects"]
+
+
+def test_default_config_all_targets_root_only() -> None:
+    assert DEFAULT_CONFIG["all_targets"] == ["root"]
+    assert {"root", "efi", "boot"}.issubset(set(DEFAULT_CONFIG["targets"]))
+
+
+def test_default_config_can_select_efi_and_boot_explicitly() -> None:
+    assert selected_targets(DEFAULT_CONFIG, Plan(mode="backup", selections=["efi"])) == ["efi"]
+    assert selected_targets(DEFAULT_CONFIG, Plan(mode="backup", selections=["boot"])) == ["boot"]
 
 
 def test_user_config_paths_include_config_toml(monkeypatch, tmp_path: Path) -> None:

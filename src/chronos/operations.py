@@ -8,7 +8,6 @@ from .config import backup_dest, expand_user_path, extra_info_enabled
 from .fs import (
     decide_metadata,
     filesystem_info,
-    selinux_xattr_policy,
     warn_selinux_metadata_loss,
 )
 from .output import info, ok, warn

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 from .config import backup_dest, expand_user_path
-from .output import warn, info
+from .output import warn
 from .types import ChronosError, ConfigJob, FilesystemInfo, MetadataDecision, SELinuxInfo
 
 # Filesystem types that do not support extended attributes.

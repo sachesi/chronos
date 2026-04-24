@@ -1,6 +1,6 @@
 Name:           chronos
-Version:        0.1.0
-Release:        12%{?dist}
+Version:        0.2.0
+Release:        1%{?dist}
 Summary:        Configurable rsync backup and restore helper for Linux
 
 License:        GPL-3.0-or-later
@@ -103,6 +103,12 @@ chmod 0644 %{buildroot}%{_datadir}/zsh/site-functions/_%{name}
 %config(noreplace) %attr(0644,root,root) %{_sysconfdir}/chronos/config.toml
 
 %changelog
+* Fri Apr 24 2026 sachesi <sachesi@example.com> - 0.2.0-1
+- Align docs with scoped system/user config workflow
+- Keep efi and boot available but not enabled by default
+- Remove config-driven UI settings; use --extra-info for diagnostics
+- Refine grouped terminal output and locking behavior
+
 * Fri Apr 24 2026 sachesi <sachesi.com> - 0.1.0-12
 - Fix fish completion path to use vendor_completions.d
 
