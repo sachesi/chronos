@@ -10,6 +10,7 @@ import tempfile
 import textwrap
 import time
 import tomllib
+from datetime import datetime
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -240,6 +241,8 @@ restore_exclude = [
 # dst = "projects"
 # requires_root = false  # custom targets default to user mode
 # one_file_system = true
+# versioned = true
+# keep_versions = 10
 # backup_exclude = ["*/target/***", "*/.git/***/objects/***"]
 # restore_exclude = []
 #
@@ -372,6 +375,8 @@ class Color:
 class Plan:
     mode: str = ""
     selections: list[str] = field(default_factory=list)
+    list_versions_target: str | None = None
+    version: str | None = None
     config_path: Path | None = None
     dry_run: bool = False
     yes: bool = False
@@ -537,6 +542,7 @@ def usage() -> str:
           chronos -b root -b home -b efi      Backup selected targets
           chronos -ra                         Restore all configured targets
           chronos -r root -r home -r efi      Restore selected targets
+          chronos --list-versions projects    List available backup versions for target
 
         Also works:
           chronos backup all
@@ -549,7 +555,9 @@ def usage() -> str:
           -y, --yes                   Do not ask restore confirmation
               --backup-dir PATH       Override backup_dir from config
               --restore-root PATH     Override restore_root from config
-              --init-config           Create default ~/.config/chronos/config.toml
+          --version NAME          Restore from a specific backup version (restore mode only)
+          --list-versions TARGET  List versions for a target (newest first)
+          --init-config           Create default ~/.config/chronos/config.toml
               --show-config           Print active config path and summary
               --list-targets          Show configured targets and presets
               --extra-info            Show verbose diagnostics, including rsync command
@@ -592,7 +600,7 @@ def parse_args(argv: list[str]) -> Plan:
         if arg in ("-h", "--help"):
             print(usage())
             raise SystemExit(0)
-        if arg in ("--version", "version"):
+        if arg == "version":
             print(__version__)
             raise SystemExit(0)
         if arg in ("-c", "--config"):
@@ -626,6 +634,24 @@ def parse_args(argv: list[str]) -> Plan:
             plan.show_config = True
         elif arg == "--list-targets":
             plan.list_targets = True
+        elif arg == "--version":
+            i += 1
+            if i >= len(argv):
+                raise ChronosError("--version needs a version name")
+            plan.version = argv[i]
+        elif arg.startswith("--version="):
+            plan.version = arg.split("=", 1)[1]
+        elif arg == "--list-versions":
+            i += 1
+            if i >= len(argv):
+                raise ChronosError("--list-versions needs a target")
+            if plan.list_versions_target is not None:
+                raise ChronosError("--list-versions can be used only once")
+            plan.list_versions_target = normalize_builtin_selection(argv[i])
+        elif arg.startswith("--list-versions="):
+            if plan.list_versions_target is not None:
+                raise ChronosError("--list-versions can be used only once")
+            plan.list_versions_target = normalize_builtin_selection(arg.split("=", 1)[1])
         elif arg == "--extra-info":
             plan.extra_info = True
         elif arg == "--no-extra-info":
@@ -672,6 +698,17 @@ def parse_args(argv: list[str]) -> Plan:
     return plan
 
 
+def validate_plan(plan: Plan) -> None:
+    if plan.version is not None:
+        validate_version_name(plan.version)
+        if plan.mode != "restore":
+            raise ChronosError("--version requires restore mode")
+        if len(plan.selections) != 1:
+            raise ChronosError("--version can be used with exactly one restore target")
+    if plan.list_versions_target is not None and plan.mode:
+        raise ChronosError("--list-versions cannot be combined with backup or restore mode")
+
+
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(base)
     for key, value in override.items():
@@ -683,6 +720,7 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 
 TARGET_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+VERSION_NAME_RE = re.compile(r"^[0-9]{8}-[0-9]{6}(?:-[0-9]+)?$")
 RESERVED_TARGET_NAMES = {"all", "a"}
 ALLOWED_TOP_LEVEL_KEYS = {
     "backup_dir",
@@ -788,6 +826,8 @@ def validate_targets(config: dict[str, Any], config_path: Path | None) -> None:
         "delete",
         "delete_excluded",
         "requires_root",
+        "versioned",
+        "keep_versions",
     }
     bool_keys = {
         "one_file_system",
@@ -799,6 +839,7 @@ def validate_targets(config: dict[str, Any], config_path: Path | None) -> None:
         "delete",
         "delete_excluded",
         "requires_root",
+        "versioned",
     }
     list_keys = {"backup_exclude", "restore_exclude", "create_dirs_after_restore"}
 
@@ -845,6 +886,18 @@ def validate_targets(config: dict[str, Any], config_path: Path | None) -> None:
             require_string_list(target, key, config_path, scope=f"targets.{name}")
         for key in bool_keys & set(target):
             require_bool(target, key, config_path, scope=f"targets.{name}")
+        if "keep_versions" in target:
+            value = target["keep_versions"]
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                raise config_error(
+                    config_path,
+                    f"targets.{name}.keep_versions must be an integer >= 1",
+                )
+            if not target.get("versioned", False):
+                raise config_error(
+                    config_path,
+                    f"targets.{name}.keep_versions requires versioned = true",
+                )
 
 
 def validate_presets(config: dict[str, Any], config_path: Path | None) -> None:
@@ -1305,12 +1358,163 @@ def selected_targets(config: dict[str, Any], plan: Plan) -> list[str]:
 
 
 def backup_dest(config: dict[str, Any], target: str) -> Path:
+    return target_backup_root(config, config["targets"][target], target=target)
+
+
+def target_backup_root(
+    config: dict[str, Any], target_config: dict[str, Any], *, target: str | None = None
+) -> Path:
     backup_dir = expand_user_path(config["backup_dir"])
-    target_config = config["targets"][target]
-    dst = backup_dir / target_config.get("dst", target)
+    dst_name = target_config.get("dst", target)
+    if dst_name is None:
+        raise ChronosError("target destination is not configured")
+    dst = backup_dir / str(dst_name)
     if str(target_config.get("src", "")).startswith("~"):
         dst = dst / original_user_home().name
     return dst
+
+
+def is_target_versioned(target_config: dict[str, Any]) -> bool:
+    return bool(target_config.get("versioned", False))
+
+
+def target_versions_dir(config: dict[str, Any], target: str) -> Path:
+    return backup_dest(config, target) / "versions"
+
+
+def version_name_now() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def validate_version_name(name: str) -> str:
+    if "/" in name or ".." in name:
+        raise ChronosError(f"invalid version name: {name}")
+    if not VERSION_NAME_RE.fullmatch(name):
+        raise ChronosError(f"invalid version name: {name}")
+    return name
+
+
+def list_target_versions(config: dict[str, Any], target: str) -> list[str]:
+    versions_dir = target_versions_dir(config, target)
+    if not versions_dir.exists():
+        return []
+    if not versions_dir.is_dir():
+        raise ChronosError(f"versions path is not a directory: {versions_dir}")
+    return sorted(
+        [p.name for p in versions_dir.iterdir() if p.is_dir() and VERSION_NAME_RE.fullmatch(p.name)],
+        reverse=True,
+    )
+
+
+def is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_current_version(config: dict[str, Any], target: str) -> Path | None:
+    current = backup_dest(config, target) / "current"
+    if not current.exists():
+        return None
+    if not current.is_symlink():
+        raise ChronosError(f"current is not a symlink for target: {target}")
+
+    versions_dir = target_versions_dir(config, target)
+    resolved = current.resolve(strict=True)
+    versions_real = versions_dir.resolve()
+    if not is_relative_to(resolved, versions_real):
+        raise ChronosError(f"current points outside versions directory for target: {target}")
+    if not resolved.is_dir():
+        raise ChronosError(f"current target is not a directory for target: {target}")
+    return resolved
+
+
+def create_version_dir(config: dict[str, Any], target: str) -> tuple[str, Path, Path]:
+    target_root = backup_dest(config, target)
+    versions_dir = target_versions_dir(config, target)
+    target_root.mkdir(parents=True, exist_ok=True)
+    versions_dir.mkdir(parents=True, exist_ok=True)
+
+    base = version_name_now()
+    candidate = base
+    index = 1
+    while True:
+        final_dir = versions_dir / candidate
+        incomplete_dir = target_root / f".incomplete-{candidate}"
+        if not final_dir.exists() and not incomplete_dir.exists():
+            incomplete_dir.mkdir(parents=True, exist_ok=False)
+            return candidate, incomplete_dir, final_dir
+        index += 1
+        candidate = f"{base}-{index}"
+
+
+def update_current_symlink(config: dict[str, Any], target: str, version_name: str) -> None:
+    target_root = backup_dest(config, target)
+    current = target_root / "current"
+    versions_dir = target_versions_dir(config, target)
+    version_dir = versions_dir / version_name
+    if not version_dir.is_dir():
+        raise ChronosError(f"missing completed version directory: {version_dir}")
+    relative_target = Path("versions") / version_name
+
+    if current.exists() or current.is_symlink():
+        if not current.is_symlink():
+            raise ChronosError(f"refusing to replace non-symlink current path: {current}")
+        current.unlink()
+    current.symlink_to(relative_target)
+
+
+def prune_old_versions(config: dict[str, Any], target: str, keep: int) -> None:
+    versions_dir = target_versions_dir(config, target)
+    if not versions_dir.exists():
+        return
+
+    versions_real = versions_dir.resolve()
+    current_target = resolve_current_version(config, target)
+    versions = list_target_versions(config, target)
+    to_remove = versions[keep:]
+
+    for name in to_remove:
+        version_path = versions_dir / name
+        try:
+            resolved = version_path.resolve(strict=True)
+        except OSError:
+            warn(f"skipping prune of unreadable version path: {version_path}")
+            continue
+        if not is_relative_to(resolved, versions_real):
+            warn(f"skipping prune outside versions directory: {version_path}")
+            continue
+        if current_target is not None and resolved == current_target:
+            continue
+        if version_path.is_symlink():
+            warn(f"skipping symlink in versions directory: {version_path}")
+            continue
+        shutil.rmtree(version_path)
+
+
+def source_for_restore(config: dict[str, Any], target: str, requested_version: str | None) -> Path:
+    target_config = config["targets"][target]
+    if not is_target_versioned(target_config):
+        if requested_version is not None:
+            raise ChronosError(f"--version cannot be used with non-versioned target: {target}")
+        return backup_dest(config, target)
+
+    if requested_version is None:
+        current = backup_dest(config, target) / "current"
+        if not current.exists():
+            raise ChronosError(f"missing current backup symlink: {current}")
+        resolved = resolve_current_version(config, target)
+        if resolved is None:
+            raise ChronosError(f"missing current backup symlink: {current}")
+        return current
+
+    version = validate_version_name(requested_version)
+    version_dir = target_versions_dir(config, target) / version
+    if not version_dir.is_dir():
+        raise ChronosError(f"missing backup version for {target}: {version}")
+    return version_dir
 
 
 def join_restore_root(restore_root: str | Path, subpath: str | Path) -> Path:
@@ -1700,20 +1904,40 @@ def backup_target(
 ) -> None:
     target_config = config["targets"][target]
     src = choose_source(target, target_config)
-    dst = backup_dest(config, target)
-    dst.mkdir(parents=True, exist_ok=True)
+    destination_for_rsync = backup_dest(config, target)
+    created_version: str | None = None
+    incomplete_dir: Path | None = None
+    final_version_dir: Path | None = None
+    link_dest: Path | None = None
+
+    if is_target_versioned(target_config):
+        created_version, incomplete_dir, final_version_dir = create_version_dir(config, target)
+        destination_for_rsync = incomplete_dir
+        try:
+            link_dest = resolve_current_version(config, target)
+        except ChronosError as exc:
+            warn(str(exc))
+            link_dest = None
+    else:
+        destination_for_rsync.mkdir(parents=True, exist_ok=True)
 
     section(f"backup {target}")
     info(f"source:      {src}")
-    info(f"destination: {dst}")
+    info(f"destination: {destination_for_rsync}")
 
     source_fs = filesystem_info(src)
-    dest_fs = filesystem_info(dst)
+    dest_fs = filesystem_info(destination_for_rsync)
     info(f"source fs:   {source_fs.summary()}")
     info(f"dest fs:     {dest_fs.summary()}")
 
     metadata = decide_metadata(
-        config, target_config, source_fs, dest_fs, dest_path=dst, mode="backup", selinux=selinux
+        config,
+        target_config,
+        source_fs,
+        dest_fs,
+        dest_path=destination_for_rsync,
+        mode="backup",
+        selinux=selinux,
     )
     show_extra_info = extra_info_enabled(config)
     if (
@@ -1726,14 +1950,41 @@ def backup_target(
     warn_selinux_metadata_loss(selinux, target, metadata, show=show_extra_info)
 
     args = build_rsync_args(config, target_config, mode="backup", metadata=metadata)
+    if is_target_versioned(target_config) and link_dest is not None:
+        try:
+            base_real = target_versions_dir(config, target).resolve()
+            link_real = link_dest.resolve()
+            if is_relative_to(link_real, base_real):
+                args.append(f"--link-dest={link_real}")
+            else:
+                warn(f"cannot safely use --link-dest for {target}; falling back to full copy")
+        except OSError:
+            warn(f"cannot safely resolve previous version for {target}; falling back to full copy")
     append_excludes(args, backup_excludes_for_target(config, target, target_config))
-    args.extend([ensure_trailing_slash(src), ensure_trailing_slash(dst)])
-    run_rsync(
-        args,
-        dry_run=dry_run,
-        progress_style=effective_progress_style(config),
-        show_command=extra_info_enabled(config),
-    )
+    args.extend([ensure_trailing_slash(src), ensure_trailing_slash(destination_for_rsync)])
+    try:
+        run_rsync(
+            args,
+            dry_run=dry_run,
+            progress_style=effective_progress_style(config),
+            show_command=extra_info_enabled(config),
+        )
+    except Exception:
+        if incomplete_dir is not None and dry_run:
+            shutil.rmtree(incomplete_dir, ignore_errors=True)
+        raise
+
+    if is_target_versioned(target_config):
+        assert (
+            created_version is not None and incomplete_dir is not None and final_version_dir is not None
+        )
+        if not dry_run:
+            incomplete_dir.rename(final_version_dir)
+            update_current_symlink(config, target, created_version)
+            keep_versions = int(target_config.get("keep_versions", 10))
+            prune_old_versions(config, target, keep_versions)
+        else:
+            shutil.rmtree(incomplete_dir, ignore_errors=True)
     ok(f"backup finished: {target}")
 
 
@@ -1784,10 +2035,15 @@ def should_touch_autorelabel(config: dict[str, Any], selinux: SELinuxInfo) -> bo
 
 
 def restore_target(
-    config: dict[str, Any], target: str, *, dry_run: bool, selinux: SELinuxInfo
+    config: dict[str, Any],
+    target: str,
+    *,
+    dry_run: bool,
+    selinux: SELinuxInfo,
+    requested_version: str | None = None,
 ) -> None:
     target_config = config["targets"][target]
-    src = backup_dest(config, target)
+    src = source_for_restore(config, target, requested_version)
     if not src.exists():
         raise ChronosError(f"missing backup: {src}")
     dst = restore_destination(config, target)
@@ -1903,11 +2159,33 @@ def list_targets(config: dict[str, Any]) -> None:
             print(f"   {c(name, Color.BOLD):<20} {desc}")
 
 
+def list_versions(config: dict[str, Any], target: str) -> None:
+    configured = config.get("targets", {})
+    if target not in configured:
+        raise ChronosError(f"target not configured: {target}")
+    target_config = configured[target]
+    if not is_target_versioned(target_config):
+        print(f"target is not versioned: {target}")
+        return
+
+    versions = list_target_versions(config, target)
+    current_name = None
+    current_resolved = resolve_current_version(config, target)
+    if current_resolved is not None:
+        current_name = current_resolved.name
+
+    print(f"{target}:")
+    for name in versions:
+        marker = "  current" if name == current_name else ""
+        print(f"  {name}{marker}")
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     try:
         plan = parse_args(argv)
+        validate_plan(plan)
 
         if plan.init_config:
             write_default_config(plan.config_path)
@@ -1933,12 +2211,17 @@ def main(argv: list[str] | None = None) -> int:
             print_summary(config, config_path, selinux=selinux)
             list_targets(config)
             return 0
+        if plan.list_versions_target is not None:
+            list_versions(config, plan.list_versions_target)
+            return 0
 
         if not plan.mode:
             print(usage())
             return 2
 
         targets = selected_targets(config, plan)
+        if plan.version is not None and len(targets) != 1:
+            raise ChronosError("--version can be used with exactly one restore target")
 
         maybe_sudo_escalate(config, targets, plan.mode, config_path)
         print_summary(config, config_path, targets, selinux=selinux)
@@ -1955,7 +2238,13 @@ def main(argv: list[str] | None = None) -> int:
             if plan.mode == "backup":
                 backup_target(config, target, dry_run=plan.dry_run, selinux=selinux)
             else:
-                restore_target(config, target, dry_run=plan.dry_run, selinux=selinux)
+                restore_target(
+                    config,
+                    target,
+                    dry_run=plan.dry_run,
+                    selinux=selinux,
+                    requested_version=plan.version,
+                )
 
         section("done")
         ok("all selected operations completed")
