@@ -334,6 +334,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
 }
 
+FILE_CONFIG_BASE: dict[str, Any] = deepcopy(DEFAULT_CONFIG)
+FILE_CONFIG_BASE["all_targets"] = []
+FILE_CONFIG_BASE["presets"] = {}
+FILE_CONFIG_BASE["targets"] = {}
+
 
 # ---------------------------------------------------------------------------
 # User identity helpers
@@ -684,11 +689,14 @@ def load_config(path: Path | None) -> tuple[dict[str, Any], Path | None]:
         path = default_config_path()
         if not path.exists():
             return deepcopy(DEFAULT_CONFIG), None
+        base_config = DEFAULT_CONFIG
     elif not path.exists():
         raise ChronosError(f"config file does not exist: {path}")
+    else:
+        base_config = FILE_CONFIG_BASE
 
     user_config = load_config_file(path)
-    config = deep_merge(DEFAULT_CONFIG, user_config)
+    config = deep_merge(base_config, user_config)
     return validate_config(config, path), path
 
 
@@ -696,7 +704,7 @@ def load_merged_system_config() -> ConfigJob | None:
     paths = system_config_paths()
     if not paths:
         return None
-    merged = deepcopy(DEFAULT_CONFIG)
+    merged = deepcopy(FILE_CONFIG_BASE)
     for path in paths:
         merged = deep_merge(merged, load_config_file(path))
     validated = validate_config(
@@ -714,7 +722,7 @@ def load_merged_system_config() -> ConfigJob | None:
 def load_user_config_jobs() -> list[ConfigJob]:
     jobs: list[ConfigJob] = []
     for path in user_config_paths():
-        cfg = deep_merge(DEFAULT_CONFIG, load_config_file(path))
+        cfg = deep_merge(FILE_CONFIG_BASE, load_config_file(path))
         jobs.append(
             ConfigJob(
                 path=path,
