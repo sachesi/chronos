@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from chronos.cli import print_list_targets
+from chronos import cli
 from chronos.config import (
     discover_config_jobs_for_run,
     load_config,
@@ -185,3 +186,14 @@ dst = "projects"
     )
     with pytest.raises(RuntimeError, match="unknown top-level key\\(s\\): ui"):
         load_config(cfg_path)
+
+
+def test_list_targets_main_accepts_user_config_toml(monkeypatch, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _write(home / ".config/chronos/config.toml", _user_target_config("projects"))
+    monkeypatch.setenv("CHRONOS_ORIGINAL_HOME", str(home))
+    monkeypatch.setattr("chronos.config.SYSTEM_CONFIG_PATH", tmp_path / "etc/chronos/config.toml")
+    monkeypatch.setattr("chronos.config.SYSTEM_CONFIG_DROPIN_DIR", tmp_path / "etc/chronos/config.toml.d")
+
+    rc = cli.main(["--list-targets", "--scope", "user"])
+    assert rc == 0
