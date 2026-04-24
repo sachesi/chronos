@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 import textwrap
 from copy import deepcopy
@@ -145,6 +146,8 @@ def parse_args(argv: list[str]) -> Plan:
             plan.no_sudo = True
         elif arg == "--no-interactive":
             plan.no_interactive = True
+        elif arg == "--internal-system-only":
+            plan.internal_system_only = True
         elif arg == "--scope":
             i += 1
             if i >= len(argv):
@@ -239,22 +242,31 @@ def validate_plan(plan: Plan) -> None:
 # ---------------------------------------------------------------------------
 
 
-def maybe_sudo_escalate(jobs: list[ConfigJob], plan: Plan) -> None:
-    """Re-exec through sudo only when the selected operation needs root."""
+def maybe_sudo_escalate(jobs: list[ConfigJob], plan: Plan) -> list[ConfigJob]:
+    """Run system jobs with sudo when needed while keeping user jobs in user context."""
+    if plan.internal_system_only:
+        return [job for job in jobs if job.scope != "user"]
+
+    split_by_scope = plan.config_path is None and plan.scope == "auto"
+    if split_by_scope:
+        system_jobs = [job for job in jobs if job.scope != "user"]
+        user_jobs = [job for job in jobs if job.scope == "user"]
+    else:
+        system_jobs = jobs
+        user_jobs = []
+
     if os.geteuid() == 0:
-        return
+        return system_jobs if plan.internal_system_only else jobs
 
     needs_any_root = False
-    for job in jobs:
-        if job.scope == "user":
-            continue
+    for job in system_jobs:
         targets = selected_job_targets(job, plan)
         if needs_root(job.config, targets, plan.mode):
             needs_any_root = True
             break
 
     if not needs_any_root:
-        return
+        return jobs
 
     if plan.no_sudo:
         raise ChronosError("selected target requires root, but sudo escalation is disabled")
@@ -269,12 +281,17 @@ def maybe_sudo_escalate(jobs: list[ConfigJob], plan: Plan) -> None:
             "selected target requires root, but --no-interactive forbids sudo prompt"
         )
 
-    env_args = [
-        f"CHRONOS_ORIGINAL_USER={_original_user_name()}",
-        f"CHRONOS_ORIGINAL_HOME={_original_user_home()}",
-    ]
-    info("root privileges required for selected targets — re-running with sudo…")
-    os.execvp(sudo, [sudo, *env_args, sys.argv[0], *sys.argv[1:]])
+    cmd = [sudo, sys.argv[0], *sys.argv[1:], "--internal-system-only"]
+    env = dict(os.environ)
+    env["CHRONOS_ORIGINAL_USER"] = _original_user_name()
+    env["CHRONOS_ORIGINAL_HOME"] = str(_original_user_home())
+
+    info("root privileges required for selected system targets — running them with sudo…")
+    result = subprocess.run(cmd, env=env, check=False)  # noqa: S603
+    if result.returncode != 0:
+        raise ChronosError(f"system job run with sudo failed (exit status {result.returncode})")
+
+    return user_jobs
 
 
 def _original_user_name() -> str:
@@ -424,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
             print(usage())
             return 2
 
-        maybe_sudo_escalate(jobs, plan)
+        jobs = maybe_sudo_escalate(jobs, plan)
 
         require_tool("rsync")
         require_tool("findmnt")

@@ -29,6 +29,7 @@ class Plan:
     list_configs: bool = False
     no_sudo: bool = False
     no_interactive: bool = False
+    internal_system_only: bool = False
 
 
 @dataclass
