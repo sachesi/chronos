@@ -30,8 +30,8 @@ chronos -ra
 Enable timers (examples):
 
 ```bash
-sudo systemctl enable --now chronos-backup.timer
-systemctl --user enable --now chronos-user-backup.timer
+sudo systemctl enable --now chronos.timer
+systemctl --user enable --now chronos.timer
 ```
 
 ## Table of contents

@@ -5,8 +5,8 @@ Chronos ships timer/service units for both system and user scopes.
 ## Installed units
 
 ### System units
-- `chronos-backup.service`
-- `chronos-backup.timer`
+- `chronos.service`
+- `chronos.timer`
 
 Service command:
 
@@ -17,8 +17,8 @@ Service command:
 This backs up **system-scope configs only** (`/etc/chronos/...`).
 
 ### User units
-- `chronos-user-backup.service`
-- `chronos-user-backup.timer`
+- `chronos.service`
+- `chronos.timer`
 
 Service command:
 
@@ -34,13 +34,13 @@ Timers are installed by the package but are **not enabled automatically**.
 Enable system timer:
 
 ```bash
-sudo systemctl enable --now chronos-backup.timer
+sudo systemctl enable --now chronos.timer
 ```
 
 Enable user timer:
 
 ```bash
-systemctl --user enable --now chronos-user-backup.timer
+systemctl --user enable --now chronos.timer
 ```
 
 ## User timers when logged out (lingering)

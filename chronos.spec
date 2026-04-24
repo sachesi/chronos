@@ -58,14 +58,14 @@ install -Dm0644 assets/usr/share/fish/completions/%{name}.fish \
 install -Dm0644 assets/usr/share/zsh/site-functions/_%{name} \
     %{buildroot}%{_datadir}/zsh/site-functions/_%{name}
 
-install -Dm0644 assets/usr/lib/systemd/system/chronos-backup.service \
-    %{buildroot}%{_unitdir}/chronos-backup.service
-install -Dm0644 assets/usr/lib/systemd/system/chronos-backup.timer \
-    %{buildroot}%{_unitdir}/chronos-backup.timer
-install -Dm0644 assets/usr/lib/systemd/user/chronos-user-backup.service \
-    %{buildroot}%{_userunitdir}/chronos-user-backup.service
-install -Dm0644 assets/usr/lib/systemd/user/chronos-user-backup.timer \
-    %{buildroot}%{_userunitdir}/chronos-user-backup.timer
+install -Dm0644 assets/usr/lib/systemd/system/chronos.service \
+    %{buildroot}%{_unitdir}/chronos.service
+install -Dm0644 assets/usr/lib/systemd/system/chronos.timer \
+    %{buildroot}%{_unitdir}/chronos.timer
+install -Dm0644 assets/usr/lib/systemd/user/chronos.service \
+    %{buildroot}%{_userunitdir}/chronos.service
+install -Dm0644 assets/usr/lib/systemd/user/chronos.timer \
+    %{buildroot}%{_userunitdir}/chronos.timer
 
 install -Dm0644 assets/etc/chronos/config.toml \
     %{buildroot}%{_sysconfdir}/chronos/config.toml
@@ -93,10 +93,10 @@ chmod 0644 %{buildroot}%{_datadir}/zsh/site-functions/_%{name}
 %attr(0644,root,root) %{_datadir}/fish/vendor_completions.d/%{name}.fish
 %attr(0644,root,root) %{_datadir}/zsh/site-functions/_%{name}
 
-%attr(0644,root,root) %{_unitdir}/chronos-backup.service
-%attr(0644,root,root) %{_unitdir}/chronos-backup.timer
-%attr(0644,root,root) %{_userunitdir}/chronos-user-backup.service
-%attr(0644,root,root) %{_userunitdir}/chronos-user-backup.timer
+%attr(0644,root,root) %{_unitdir}/chronos.service
+%attr(0644,root,root) %{_unitdir}/chronos.timer
+%attr(0644,root,root) %{_userunitdir}/chronos.service
+%attr(0644,root,root) %{_userunitdir}/chronos.timer
 
 %dir %attr(0755,root,root) %{_sysconfdir}/chronos
 %dir %attr(0755,root,root) %{_sysconfdir}/chronos/config.toml.d
