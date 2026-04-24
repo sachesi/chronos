@@ -61,19 +61,19 @@ def usage() -> str:
           -c, --config PATH           Use another config file
           -n, --dry-run               Show what rsync would do
           -y, --yes                   Do not ask restore confirmation
+          -S, --scope MODE            Config scope: auto|system|user
+          -t, --list-targets          Show configured targets and presets
+          -C, --show-config           Print active config path and summary
+          -L, --list-versions TARGET  List versions for a target (newest first)
+          -F, --from-version NAME     Restore from a specific backup version
+          -E, --extra-info            Show verbose diagnostics
               --backup-dir PATH       Override backup_dir from config
               --restore-root PATH     Override restore_root from config
-          --from-version NAME     Restore from a specific backup version (restore mode only)
-          --list-versions TARGET  List versions for a target (newest first)
           --init-config           Create default ~/.config/chronos/config.toml
-              --scope MODE            Config scope: auto|system|user
               --all-configs           Run all discovered configs in selected scope
               --list-configs          Show discovered configs and exit
               --no-sudo               Disable sudo escalation
               --no-interactive        Disable interactive prompts
-              --show-config           Print active config path and summary
-              --list-targets          Show configured targets and presets
-              --extra-info            Show verbose diagnostics, including rsync command
               --no-extra-info         Hide verbose diagnostics
           -h, --help                  Show help
 
@@ -149,25 +149,25 @@ def parse_args(argv: list[str]) -> Plan:
             plan.no_interactive = True
         elif arg == "--internal-system-only":
             plan.internal_system_only = True
-        elif arg == "--scope":
+        elif arg in ("-S", "--scope"):
             i += 1
             if i >= len(argv):
                 raise ChronosError("--scope needs one of: auto, system, user")
             plan.scope = argv[i]
         elif arg.startswith("--scope="):
             plan.scope = arg.split("=", 1)[1]
-        elif arg == "--show-config":
+        elif arg in ("-C", "--show-config"):
             plan.show_config = True
-        elif arg == "--list-targets":
+        elif arg in ("-t", "--list-targets"):
             plan.list_targets = True
-        elif arg == "--from-version":
+        elif arg in ("-F", "--from-version"):
             i += 1
             if i >= len(argv):
                 raise ChronosError("--from-version needs a version name")
             plan.version = argv[i]
         elif arg.startswith("--from-version="):
             plan.version = arg.split("=", 1)[1]
-        elif arg == "--list-versions":
+        elif arg in ("-L", "--list-versions"):
             i += 1
             if i >= len(argv):
                 raise ChronosError("--list-versions needs a target")
@@ -178,7 +178,7 @@ def parse_args(argv: list[str]) -> Plan:
             if plan.list_versions_target is not None:
                 raise ChronosError("--list-versions can be used only once")
             plan.list_versions_target = normalize_builtin_selection(arg.split("=", 1)[1])
-        elif arg == "--extra-info":
+        elif arg in ("-E", "--extra-info"):
             plan.extra_info = True
         elif arg == "--no-extra-info":
             plan.extra_info = False

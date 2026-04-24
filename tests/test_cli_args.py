@@ -23,3 +23,18 @@ def test_from_version_parses_restore_version() -> None:
 def test_from_version_requires_value() -> None:
     with pytest.raises(ChronosError, match="--from-version needs a version name"):
         parse_args(["--from-version"])
+
+
+def test_short_aliases_parse_core_long_flags() -> None:
+    plan = parse_args(["-L", "projects", "-S", "user", "-C", "-t", "-E"])
+    assert plan.list_versions_target == "projects"
+    assert plan.scope == "user"
+    assert plan.show_config is True
+    assert plan.list_targets is True
+    assert plan.extra_info is True
+
+
+def test_short_from_version_alias_parses_restore_version() -> None:
+    plan = parse_args(["-r", "projects", "-F", "20260424-180806"])
+    assert plan.mode == "restore"
+    assert plan.version == "20260424-180806"
