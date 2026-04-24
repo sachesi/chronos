@@ -154,11 +154,23 @@ restore_exclude = [
   "/efi/***",
 ]
 
-# Example custom target:
 # [targets.projects]
 # src = "/mnt/data0/projects/"
 # dst = "projects"
+# requires_root = false
 # one_file_system = true
-# backup_exclude = ["*/target/***", "*/.git/***/objects/***"]
+# versioned = true
+# keep_versions = 3
+# backup_exclude = [
+#   "**/target/***",
+#   "**/.git/***",
+#   "**/vendor/***",
+#   "**/.cargo/***",
+#   "**/*.tar.zst",
+#   "**/*.tar.gz"
+# ]
 # restore_exclude = []
-
+#
+# Custom targets default to user mode. Set requires_root = true only when the
+# source truly requires root privileges (for example, system paths). A path
+# such as /mnt/data0/projects should not need sudo if your user can read it.
