@@ -10,6 +10,8 @@ import tempfile
 import textwrap
 import time
 import tomllib
+import fcntl
+from contextlib import contextmanager
 from datetime import datetime
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -21,6 +23,8 @@ from . import __version__
 APP_NAME = "chronos"
 INFO_GLYPH = "::"
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "chronos" / "config.toml"
+SYSTEM_CONFIG_PATH = Path("/etc/chronos/config.toml")
+SYSTEM_CONFIG_DROPIN_DIR = Path("/etc/chronos/config.toml.d")
 
 TARGET_ALIASES = {
     "/": "root",
@@ -386,6 +390,19 @@ class Plan:
     backup_dir_override: str | None = None
     restore_root_override: str | None = None
     extra_info: bool | None = None
+    scope: str = "auto"
+    all_configs: bool = False
+    list_configs: bool = False
+    no_sudo: bool = False
+    no_interactive: bool = False
+
+
+@dataclass
+class ConfigJob:
+    path: Path | None
+    scope: str
+    config: dict[str, Any]
+    display_name: str
 
 
 @dataclass
@@ -522,6 +539,41 @@ def default_config_path() -> Path:
     return original_user_home() / ".config" / "chronos" / "config.toml"
 
 
+def user_config_dir() -> Path:
+    return original_user_home() / ".config" / "chronos"
+
+
+def system_config_paths() -> list[Path]:
+    paths: list[Path] = []
+    if SYSTEM_CONFIG_PATH.exists():
+        paths.append(SYSTEM_CONFIG_PATH)
+    if SYSTEM_CONFIG_DROPIN_DIR.exists() and SYSTEM_CONFIG_DROPIN_DIR.is_dir():
+        paths.extend(
+            sorted(
+                p
+                for p in SYSTEM_CONFIG_DROPIN_DIR.glob("*.toml")
+                if p.is_file() and not p.name.startswith(".")
+            )
+        )
+    return paths
+
+
+def user_config_paths() -> list[Path]:
+    cfg_dir = user_config_dir()
+    if not cfg_dir.exists() or not cfg_dir.is_dir():
+        return []
+    out: list[Path] = []
+    for p in sorted(cfg_dir.glob("*.toml")):
+        name = p.name
+        if name.startswith(".") or name.endswith(".bak") or name.endswith(".tmp"):
+            continue
+        if name == "config.toml":
+            continue
+        if p.is_file():
+            out.append(p)
+    return out
+
+
 def expand_user_path(path: str | Path) -> Path:
     """Expand ~ using the original invoking user, not root after sudo."""
     text = str(path)
@@ -558,6 +610,11 @@ def usage() -> str:
           --version NAME          Restore from a specific backup version (restore mode only)
           --list-versions TARGET  List versions for a target (newest first)
           --init-config           Create default ~/.config/chronos/config.toml
+              --scope MODE            Config scope: auto|system|user
+              --all-configs           Run all discovered configs in selected scope
+              --list-configs          Show discovered configs and exit
+              --no-sudo               Disable sudo escalation
+              --no-interactive        Disable interactive prompts
               --show-config           Print active config path and summary
               --list-targets          Show configured targets and presets
               --extra-info            Show verbose diagnostics, including rsync command
@@ -630,6 +687,21 @@ def parse_args(argv: list[str]) -> Plan:
             plan.yes = True
         elif arg == "--init-config":
             plan.init_config = True
+        elif arg == "--all-configs":
+            plan.all_configs = True
+        elif arg == "--list-configs":
+            plan.list_configs = True
+        elif arg == "--no-sudo":
+            plan.no_sudo = True
+        elif arg == "--no-interactive":
+            plan.no_interactive = True
+        elif arg == "--scope":
+            i += 1
+            if i >= len(argv):
+                raise ChronosError("--scope needs one of: auto, system, user")
+            plan.scope = argv[i]
+        elif arg.startswith("--scope="):
+            plan.scope = arg.split("=", 1)[1]
         elif arg == "--show-config":
             plan.show_config = True
         elif arg == "--list-targets":
@@ -699,6 +771,8 @@ def parse_args(argv: list[str]) -> Plan:
 
 
 def validate_plan(plan: Plan) -> None:
+    if plan.scope not in {"auto", "system", "user"}:
+        raise ChronosError("--scope must be one of: auto, system, user")
     if plan.version is not None:
         validate_version_name(plan.version)
         if plan.mode != "restore":
@@ -707,6 +781,8 @@ def validate_plan(plan: Plan) -> None:
             raise ChronosError("--version can be used with exactly one restore target")
     if plan.list_versions_target is not None and plan.mode:
         raise ChronosError("--list-versions cannot be combined with backup or restore mode")
+    if plan.no_interactive:
+        plan.yes = True
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -1021,6 +1097,72 @@ def load_config(path: Path | None) -> tuple[dict[str, Any], Path | None]:
     return validate_config(config, path), path
 
 
+def load_config_file(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("rb") as f:
+            user_config = tomllib.load(f)
+    except tomllib.TOMLDecodeError as exc:
+        raise ChronosError(f"invalid TOML in config {path}: {exc}") from None
+    except OSError as exc:
+        raise ChronosError(f"cannot read config {path}: {exc}") from exc
+    return user_config
+
+
+def load_merged_system_config() -> ConfigJob | None:
+    paths = system_config_paths()
+    if not paths:
+        return None
+    merged = deepcopy(DEFAULT_CONFIG)
+    for path in paths:
+        merged = deep_merge(merged, load_config_file(path))
+    validated = validate_config(merged, SYSTEM_CONFIG_PATH if SYSTEM_CONFIG_PATH.exists() else None)
+    return ConfigJob(
+        path=SYSTEM_CONFIG_PATH if SYSTEM_CONFIG_PATH.exists() else None,
+        scope="system",
+        config=validated,
+        display_name="system:/etc/chronos/config.toml",
+    )
+
+
+def load_user_config_jobs() -> list[ConfigJob]:
+    jobs: list[ConfigJob] = []
+    for path in user_config_paths():
+        cfg = deep_merge(DEFAULT_CONFIG, load_config_file(path))
+        jobs.append(
+            ConfigJob(
+                path=path,
+                scope="user",
+                config=validate_config(cfg, path),
+                display_name=f"user:{path}",
+            )
+        )
+    return jobs
+
+
+def validate_ui_defaults_only(path: Path, config_data: dict[str, Any]) -> dict[str, Any]:
+    non_ui_keys = sorted(k for k in config_data.keys() if k != "ui")
+    if non_ui_keys:
+        raise ChronosError(
+            f"{path} is reserved for user UI defaults; move backup targets to projects.toml, "
+            "games.toml, etc."
+        )
+    ui = config_data.get("ui", {})
+    if not isinstance(ui, dict):
+        raise ChronosError(f"invalid config ({path}): ui must be a table")
+    # Reuse config validation semantics by embedding ui into defaults.
+    merged = deep_merge(DEFAULT_CONFIG, {"ui": ui})
+    validated = validate_config(merged, path)
+    return dict(validated.get("ui", {}))
+
+
+def load_user_ui_defaults() -> dict[str, Any] | None:
+    path = user_config_dir() / "config.toml"
+    if not path.exists():
+        return None
+    config_data = load_config_file(path)
+    return validate_ui_defaults_only(path, config_data)
+
+
 def write_default_config(path: Path | None = None) -> None:
     if path is None:
         path = default_config_path()
@@ -1051,31 +1193,44 @@ def config_arg_present(args: list[str]) -> bool:
     return "-c" in args or "--config" in args or any(a.startswith("--config=") for a in args)
 
 
+def selected_job_targets(job: ConfigJob, plan: Plan) -> list[str]:
+    return job_targets(job, plan) if plan.selections else selected_targets(job.config, Plan(mode=plan.mode, selections=["all"]))
+
+
 def maybe_sudo_escalate(
-    config: dict[str, Any],
-    targets: list[str],
-    mode: str,
-    config_path: Path | None,
+    jobs: list[ConfigJob],
+    plan: Plan,
 ) -> None:
     """Re-exec through sudo only when the selected operation needs root."""
     if os.geteuid() == 0:
         return
-    if not needs_root(config, targets, mode):
+    needs_any_root = False
+    for job in jobs:
+        if job.scope == "user":
+            continue
+        targets = selected_job_targets(job, plan)
+        if needs_root(job.config, targets, plan.mode):
+            needs_any_root = True
+            break
+    if not needs_any_root:
         return
+    if plan.no_sudo:
+        raise ChronosError("selected target requires root, but sudo escalation is disabled")
 
     sudo = shutil.which("sudo")
     if sudo is None:
         raise ChronosError(
             "root privileges are required for selected targets, but sudo was not found"
         )
+    if plan.no_interactive:
+        raise ChronosError("selected target requires root, but --no-interactive forbids sudo prompt")
 
     args = sys.argv[1:]
-    if config_path is not None and not config_arg_present(args):
-        args = ["--config", str(config_path)] + args
 
     env_args = [
         f"CHRONOS_ORIGINAL_USER={original_user_name()}",
         f"CHRONOS_ORIGINAL_HOME={original_user_home()}",
+        "CHRONOS_MANUAL_AUTO_ALL=1",
     ]
     info("root privileges required for selected targets — re-running with sudo…")
     os.execvp(sudo, [sudo, *env_args, sys.argv[0], *args])
@@ -1108,6 +1263,27 @@ def ensure_backup_mount(backup_dir: Path, require_mount: bool) -> None:
             f"{backup_dir} is not on a mounted backup filesystem. "
             "Mount the backup disk or change backup_dir in config."
         )
+
+
+@contextmanager
+def backup_lock(backup_dir: Path):
+    lock_path = backup_dir / ".chronos.lock"
+    fd = None
+    try:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise ChronosError(f"another chronos backup is already running for {backup_dir}") from None
+        yield
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            os.close(fd)
 
 
 def selinux_info() -> SELinuxInfo:
@@ -1318,6 +1494,68 @@ def expand_preset(config: dict[str, Any], name: str, mode: str) -> list[str] | N
             return [str(x) for x in preset[mode_key]]
         return [str(x) for x in preset.get("targets", [])]
     raise ChronosError(f"invalid preset format: {name}")
+
+
+def job_targets(job: ConfigJob, plan: Plan) -> list[str]:
+    effective = Plan(mode=plan.mode, selections=list(plan.selections))
+    return selected_targets(job.config, effective)
+
+
+def discover_config_jobs(plan: Plan) -> list[ConfigJob]:
+    if plan.config_path is not None:
+        config, _ = load_config(plan.config_path)
+        return [
+            ConfigJob(
+                path=plan.config_path,
+                scope="explicit",
+                config=config,
+                display_name=f"explicit:{plan.config_path}",
+            )
+        ]
+
+    jobs: list[ConfigJob] = []
+    system_job = load_merged_system_config()
+    user_jobs = load_user_config_jobs()
+    if plan.scope in {"auto", "system"} and system_job is not None:
+        jobs.append(system_job)
+    if plan.scope in {"auto", "user"}:
+        jobs.extend(user_jobs)
+    return jobs
+
+
+def discover_config_jobs_for_run(plan: Plan) -> list[ConfigJob]:
+    jobs = discover_config_jobs(plan)
+    if not jobs:
+        if plan.config_path is None and plan.scope == "auto":
+            config, _ = load_config(None)
+            return [ConfigJob(path=None, scope="builtin", config=config, display_name="builtin")]
+        raise ChronosError("no matching config files were discovered")
+
+    if plan.config_path is not None:
+        return jobs
+    if not plan.selections:
+        return jobs
+    if plan.selections == ["all"] or plan.all_configs:
+        return jobs
+
+    matches: list[ConfigJob] = []
+    for job in jobs:
+        try:
+            selected = job_targets(job, plan)
+        except ChronosError:
+            continue
+        if selected:
+            matches.append(job)
+
+    if not matches:
+        raise ChronosError(f"target or preset not configured: {', '.join(plan.selections)}")
+    if len(matches) > 1:
+        names = ", ".join(job.display_name for job in matches)
+        raise ChronosError(
+            f"ambiguous target selection across multiple configs: {names}. "
+            "use --scope or --config"
+        )
+    return matches
 
 
 def selected_targets(config: dict[str, Any], plan: Plan) -> list[str]:
@@ -2104,6 +2342,8 @@ def confirm_restore(config: dict[str, Any], plan: Plan, targets: list[str]) -> N
     warn(f"targets: {', '.join(targets)}")
     if restore_root == "/":
         warn("this is the live running system root")
+    if plan.no_interactive:
+        raise ChronosError("restore requires confirmation; re-run with --yes")
     answer = input("Type RESTORE to continue: ").strip()
     if answer != "RESTORE":
         raise ChronosError("restore cancelled")
@@ -2180,6 +2420,34 @@ def list_versions(config: dict[str, Any], target: str) -> None:
         print(f"  {name}{marker}")
 
 
+def print_config_jobs(jobs: list[ConfigJob]) -> None:
+    section("configs")
+    if not jobs:
+        print("  (none)")
+        return
+    for job in jobs:
+        print(f"  {job.scope:<8} {job.display_name}")
+
+
+def should_apply_user_ui_defaults(plan: Plan) -> bool:
+    if plan.no_interactive:
+        return False
+    if plan.config_path is not None:
+        return False
+    return plan.scope == "auto"
+
+
+def apply_ui_overrides(
+    config: dict[str, Any], plan: Plan, user_ui_defaults: dict[str, Any] | None
+) -> dict[str, Any]:
+    effective = deepcopy(config)
+    if should_apply_user_ui_defaults(plan) and user_ui_defaults:
+        effective["ui"] = deep_merge(effective.get("ui", {}), user_ui_defaults)
+    if plan.extra_info is not None:
+        effective.setdefault("ui", {})["extra-info"] = plan.extra_info
+    return effective
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
@@ -2191,60 +2459,85 @@ def main(argv: list[str] | None = None) -> int:
             write_default_config(plan.config_path)
             return 0
 
-        config, config_path = load_config(plan.config_path)
+        jobs = discover_config_jobs_for_run(plan)
+        user_ui_defaults = load_user_ui_defaults() if should_apply_user_ui_defaults(plan) else None
+        if plan.list_configs:
+            print_config_jobs(jobs)
+            return 0
 
-        if plan.backup_dir_override:
-            config["backup_dir"] = plan.backup_dir_override
-        if plan.restore_root_override:
-            config["restore_root"] = plan.restore_root_override
-        if plan.extra_info is not None:
-            config.setdefault("ui", {})["extra-info"] = plan.extra_info
         if plan.dry_run:
             warn("dry-run enabled")
 
-        selinux = selinux_info()
-
         if plan.show_config:
-            print_summary(config, config_path, selinux=selinux)
+            selinux = selinux_info()
+            for job in jobs:
+                print_summary(job.config, job.path, selinux=selinux)
             return 0
-        if plan.list_targets:
-            print_summary(config, config_path, selinux=selinux)
-            list_targets(config)
+        if plan.list_targets and not plan.mode:
+            selinux = selinux_info()
+            for job in jobs:
+                print_summary(job.config, job.path, selinux=selinux)
+                list_targets(job.config)
             return 0
-        if plan.list_versions_target is not None:
-            list_versions(config, plan.list_versions_target)
-            return 0
+        if plan.list_versions_target is not None and not plan.mode:
+            for job in jobs:
+                if plan.list_versions_target in job.config.get("targets", {}):
+                    list_versions(job.config, plan.list_versions_target)
+                    return 0
+            raise ChronosError(f"target not configured: {plan.list_versions_target}")
 
         if not plan.mode:
             print(usage())
             return 2
 
-        targets = selected_targets(config, plan)
-        if plan.version is not None and len(targets) != 1:
-            raise ChronosError("--version can be used with exactly one restore target")
-
-        maybe_sudo_escalate(config, targets, plan.mode, config_path)
-        print_summary(config, config_path, targets, selinux=selinux)
+        maybe_sudo_escalate(jobs, plan)
 
         require_tool("rsync")
         require_tool("findmnt")
         require_tool("mountpoint")
-        ensure_backup_mount(
-            expand_user_path(config["backup_dir"]), config.get("require_backup_mount", True)
-        )
-        confirm_restore(config, plan, targets)
 
-        for target in targets:
-            if plan.mode == "backup":
-                backup_target(config, target, dry_run=plan.dry_run, selinux=selinux)
-            else:
-                restore_target(
-                    config,
-                    target,
-                    dry_run=plan.dry_run,
-                    selinux=selinux,
-                    requested_version=plan.version,
-                )
+        selinux = selinux_info()
+        print_config_jobs(jobs)
+        for job in jobs:
+            config = deepcopy(job.config)
+            if plan.backup_dir_override:
+                config["backup_dir"] = plan.backup_dir_override
+            if plan.restore_root_override:
+                config["restore_root"] = plan.restore_root_override
+            config = apply_ui_overrides(config, plan, user_ui_defaults)
+
+            targets = selected_job_targets(job, plan)
+            if plan.version is not None and len(targets) != 1:
+                raise ChronosError("--version can be used with exactly one restore target")
+            if os.geteuid() != 0 and needs_root(config, targets, plan.mode):
+                if plan.no_sudo:
+                    raise ChronosError(
+                        f"target {targets[0]} requires root, but sudo escalation is disabled"
+                    )
+
+            print_summary(config, job.path, targets, selinux=selinux)
+            if plan.list_targets:
+                list_targets(config)
+                continue
+            if plan.list_versions_target is not None:
+                list_versions(config, plan.list_versions_target)
+                continue
+
+            backup_dir = expand_user_path(config["backup_dir"])
+            ensure_backup_mount(backup_dir, config.get("require_backup_mount", True))
+            with backup_lock(backup_dir):
+                confirm_restore(config, plan, targets)
+                for target in targets:
+                    if plan.mode == "backup":
+                        backup_target(config, target, dry_run=plan.dry_run, selinux=selinux)
+                    else:
+                        restore_target(
+                            config,
+                            target,
+                            dry_run=plan.dry_run,
+                            selinux=selinux,
+                            requested_version=plan.version,
+                        )
 
         section("done")
         ok("all selected operations completed")

@@ -33,6 +33,13 @@ Backup all configured targets:
 chronos -ba
 ```
 
+In manual mode, `chronos -ba` discovers and runs:
+- system config scope: `/etc/chronos/config.toml` plus `/etc/chronos/config.toml.d/*.toml` (merged in lexical order)
+- user config scope: `~/.config/chronos/*.toml` (each file is a separate job)
+
+`~/.config/chronos/config.toml` is reserved for optional user UI defaults (`[ui]` only).
+Put user backup jobs in separate files such as `projects.toml`, `games.toml`, and `dotfiles.toml`.
+
 Backup selected targets:
 
 ```bash
@@ -73,12 +80,28 @@ Use a different config:
 chronos -ba -c ./my-config.toml
 ```
 
+Run backup services via systemd timers (installed, not auto-enabled):
+
+```bash
+sudo systemctl enable --now chronos-backup.timer
+systemctl --user enable --now chronos-user-backup.timer
+```
+
+For user timers without active login sessions:
+
+```bash
+loginctl enable-linger $USER
+```
+
 ## Config
 
-Default config path:
+Config paths:
 
 ```text
-~/.config/chronos/config.toml
+/etc/chronos/config.toml
+/etc/chronos/config.toml.d/*.toml
+~/.config/chronos/config.toml      # [ui] defaults only
+~/.config/chronos/*.toml           # backup jobs (except config.toml)
 ```
 
 Create it:
@@ -113,13 +136,22 @@ all_targets = ["root", "home", "efi", "boot"]
 
 Yes: custom backup/restore presets are supported through config.
 
-A custom target:
+Example user target file `~/.config/chronos/projects.toml`:
 
 ```toml
+backup_dir = "/mnt/storage/bak"
+all_targets = ["projects"]
+
+[ui]
+progress = "chronos"
+
 [targets.projects]
 src = "/mnt/data0/projects/"
 dst = "projects"
+requires_root = false
 one_file_system = true
+versioned = true
+keep_versions = 10
 backup_exclude = ["*/target/***", "*/.git/***/objects/***"]
 restore_exclude = []
 ```

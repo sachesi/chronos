@@ -6,6 +6,8 @@ Summary:        Configurable rsync backup and restore helper for Linux
 License:        GPL-3.0-or-later
 URL:            https://github.com/sachesi/chronos
 Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
+%{!?_unitdir:%global _unitdir %{_prefix}/lib/systemd/system}
+%{!?_userunitdir:%global _userunitdir %{_prefix}/lib/systemd/user}
 
 BuildArch:      noarch
 
@@ -56,6 +58,19 @@ install -Dm0644 assets/usr/share/fish/completions/%{name}.fish \
 install -Dm0644 assets/usr/share/zsh/site-functions/_%{name} \
     %{buildroot}%{_datadir}/zsh/site-functions/_%{name}
 
+install -Dm0644 assets/usr/lib/systemd/system/chronos-backup.service \
+    %{buildroot}%{_unitdir}/chronos-backup.service
+install -Dm0644 assets/usr/lib/systemd/system/chronos-backup.timer \
+    %{buildroot}%{_unitdir}/chronos-backup.timer
+install -Dm0644 assets/usr/lib/systemd/user/chronos-user-backup.service \
+    %{buildroot}%{_userunitdir}/chronos-user-backup.service
+install -Dm0644 assets/usr/lib/systemd/user/chronos-user-backup.timer \
+    %{buildroot}%{_userunitdir}/chronos-user-backup.timer
+
+install -Dm0644 assets/etc/chronos/config.toml \
+    %{buildroot}%{_sysconfdir}/chronos/config.toml
+mkdir -p %{buildroot}%{_sysconfdir}/chronos/config.toml.d
+
 find %{buildroot}%{_datadir}/%{name} -type d -exec chmod 0755 '{}' +
 find %{buildroot}%{_datadir}/%{name} -type f -exec chmod 0644 '{}' +
 
@@ -77,6 +92,15 @@ chmod 0644 %{buildroot}%{_datadir}/zsh/site-functions/_%{name}
 %attr(0644,root,root) %{_datadir}/bash-completion/completions/%{name}
 %attr(0644,root,root) %{_datadir}/fish/vendor_completions.d/%{name}.fish
 %attr(0644,root,root) %{_datadir}/zsh/site-functions/_%{name}
+
+%attr(0644,root,root) %{_unitdir}/chronos-backup.service
+%attr(0644,root,root) %{_unitdir}/chronos-backup.timer
+%attr(0644,root,root) %{_userunitdir}/chronos-user-backup.service
+%attr(0644,root,root) %{_userunitdir}/chronos-user-backup.timer
+
+%dir %attr(0755,root,root) %{_sysconfdir}/chronos
+%dir %attr(0755,root,root) %{_sysconfdir}/chronos/config.toml.d
+%config(noreplace) %attr(0644,root,root) %{_sysconfdir}/chronos/config.toml
 
 %changelog
 * Fri Apr 24 2026 sachesi <sachesi.com> - 0.1.0-12
