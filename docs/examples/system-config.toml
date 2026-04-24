@@ -1,0 +1,87 @@
+backup_dir = "/mnt/storage/bak"
+restore_root = "/"
+all_targets = ["root", "boot", "efi"]
+
+require_backup_mount = true
+confirm_restore_to_live_root = true
+check_filesystems = true
+auto_disable_unsupported_metadata = true
+touch_autorelabel = "auto"
+selinux_xattrs = "auto"
+
+delete = true
+delete_excluded = true
+exclude_container_storage = true
+numeric_ids = true
+preserve_acls = true
+preserve_xattrs = true
+preserve_hardlinks = true
+progress = true
+
+[ui]
+progress = "none"
+extra-info = false
+
+[rsync]
+extra_backup_args = []
+extra_restore_args = []
+
+[presets]
+
+[targets.root]
+src = "/"
+dst = "root"
+requires_root = true
+one_file_system = true
+versioned = true
+keep_versions = 7
+backup_exclude = [
+  "/home/***",
+  "/efi/***",
+  "/boot/efi/***",
+  "/proc/***",
+  "/sys/***",
+  "/dev/***",
+  "/run/***",
+  "/tmp/***",
+  "/var/tmp/***",
+  "/var/cache/***",
+  "/mnt/***",
+  "/media/***",
+  "/.snapshots/***",
+  "/lost+found",
+]
+restore_exclude = [
+  "/home/***",
+  "/proc/***",
+  "/sys/***",
+  "/dev/***",
+  "/run/***",
+  "/tmp/***",
+  "/mnt/***",
+  "/media/***",
+]
+create_dirs_after_restore = ["proc", "sys", "dev", "run", "tmp", "mnt", "media", "home", "boot", "efi"]
+
+[targets.boot]
+src = "/boot/"
+dst = "boot"
+requires_root = true
+one_file_system = true
+versioned = true
+keep_versions = 7
+backup_exclude = ["/efi/***"]
+restore_exclude = ["/efi/***"]
+
+[targets.efi]
+src_candidates = ["/efi/", "/boot/efi/"]
+dst = "efi"
+requires_root = true
+preserve_acls = false
+preserve_xattrs = false
+one_file_system = false
+mount_required = true
+versioned = true
+keep_versions = 7
+backup_exclude = []
+restore_exclude = []

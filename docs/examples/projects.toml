@@ -1,0 +1,20 @@
+backup_dir = "/mnt/storage/bak"
+all_targets = ["projects"]
+
+[ui]
+progress = "chronos"
+extra-info = false
+
+[targets.projects]
+src = "/mnt/data0/projects/"
+dst = "projects"
+requires_root = false
+one_file_system = true
+versioned = true
+keep_versions = 10
+backup_exclude = [
+  "*/target/***",
+  "*/.git/***/objects/***",
+  "*/node_modules/***",
+]
+restore_exclude = []
