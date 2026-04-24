@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import time
 from copy import deepcopy
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from .fs import (
     target_lock,
 )
 from .operations import backup_target, confirm_restore, restore_target
-from .output import Color, c, fail, info, ok, section, warn
+from .output import Color, c, fail, format_duration, glyph, info, ok, section, warn
 from .types import ChronosError, ConfigJob, Plan
 from .versioning import list_target_versions, resolve_current_version, validate_version_name
 
@@ -455,16 +456,16 @@ def print_job_header(
     selinux,
 ) -> None:
     print()
-    print(c(job.scope, Color.BOLD))
-    print(f"  {c('config:', Color.BOLD)}  {job.path if job.path else '(built-in defaults)'}")
-    print(f"  {c('backup:', Color.BOLD)}  {config['backup_dir']}")
-    print(f"  {c('targets:', Color.BOLD)} {', '.join(targets)}")
+    print(f"{c(glyph('phase'), Color.CYAN)} {c(job.scope, Color.BOLD)}")
+    print(f"  {c('config', Color.BOLD)}   {job.path if job.path else '(built-in defaults)'}")
+    print(f"  {c('backup', Color.BOLD)}   {config['backup_dir']}")
+    print(f"  {c('targets', Color.BOLD)}  {', '.join(targets)}")
     if mode == "restore":
-        print(f"  {c('restore root:', Color.BOLD)} {config['restore_root']}")
+        print(f"  {c('restore', Color.BOLD)}  {config['restore_root']}")
     if show_extra:
-        print(f"  {c('version:', Color.BOLD)} {__version__}")
+        print(f"  {c('version', Color.BOLD)}  {__version__}")
         if selinux is not None:
-            print(f"  {c('SELinux:', Color.BOLD)} {selinux.summary()}")
+            print(f"  {c('selinux', Color.BOLD)}  {selinux.summary()}")
     print()
 
 
@@ -537,6 +538,7 @@ def main(argv: list[str] | None = None) -> int:
         require_tool("mountpoint")
 
         sel = selinux_info()
+        run_started = time.monotonic()
         if not system_phase_ran or not jobs:
             print_run_header(plan)
         scope_counts: dict[str, int] = {}
@@ -581,7 +583,10 @@ def main(argv: list[str] | None = None) -> int:
                 for target in targets:
                     source = display_target_source(config, target)
                     destination = display_target_destination(config, target, plan.mode)
-                    print(f"  {c(target, Color.BOLD):<10} {source:<26} -> {destination}")
+                    start_glyph = c(glyph("start"), Color.CYAN)
+                    arrow = c(glyph("arrow"), Color.DIM)
+                    print(f"  {start_glyph} {c(target, Color.BOLD):<10} {source:<26} {arrow} {destination}")
+                    target_started = time.monotonic()
                     with target_lock(config, target):
                         if plan.mode == "backup":
                             backup_target(config, target, dry_run=plan.dry_run, selinux=sel)
@@ -594,10 +599,15 @@ def main(argv: list[str] | None = None) -> int:
                                 requested_version=plan.version,
                             )
                         scope_counts[job.scope] = scope_counts.get(job.scope, 0) + 1
+                    elapsed = time.monotonic() - target_started
+                    print(f"  {c(glyph('success'), Color.GREEN)} {target:<10} completed in {format_duration(elapsed)}")
 
-        section("done")
+        section(f"{plan.mode} completed")
+        total = 0
         for scope, completed in sorted(scope_counts.items()):
             print(f"  {scope:<8} {completed} completed")
+            total += completed
+        print(f"  {'total':<8} {total} targets in {format_duration(time.monotonic() - run_started)}")
         return 0
 
     except KeyboardInterrupt:

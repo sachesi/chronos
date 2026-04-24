@@ -114,8 +114,8 @@ def test_list_targets_groups_by_scope() -> None:
 
     out = buf.getvalue()
     assert rc == 0
-    assert "\nsystem\n" in out
-    assert "\nuser\n" in out
+    assert "system" in out
+    assert "user" in out
     assert out.index("\nsystem\n") < out.index("\nuser\n")
 
 
@@ -156,12 +156,12 @@ def test_backup_output_is_grouped_once_without_repeated_sections() -> None:
     assert rc == 0
     assert out.count("chronos backup") == 1
     assert "configs" not in out
-    assert out.count("done") == 1
+    assert out.count("backup completed") == 1
     assert "SELinux:" not in out
     assert "source fs:" not in out
     assert "dest fs:" not in out
-    assert "\nsystem\n" in out
-    assert "\nuser\n" in out
+    assert "◉ system" in out or ":: system" in out
+    assert "◉ user" in out or ":: user" in out
 
 
 def test_backup_default_hides_incomplete_for_versioned_target() -> None:
@@ -198,3 +198,36 @@ def test_backup_default_hides_incomplete_for_versioned_target() -> None:
     assert rc == 0
     assert "/projects/current" in out
     assert ".incomplete-" not in out
+
+
+def test_ascii_mode_uses_ascii_glyphs(monkeypatch) -> None:
+    plan = Plan(mode="backup", selections=["all"], scope="auto")
+    user_job = _job(scope="user")
+    buf = io.StringIO()
+    monkeypatch.setenv("CHRONOS_ASCII", "1")
+    with (
+        redirect_stdout(buf),
+        patch("chronos.cli.parse_args", return_value=plan),
+        patch("chronos.cli.discover_config_jobs_for_run", return_value=[user_job]),
+        patch("chronos.cli.maybe_sudo_escalate", return_value=([user_job], False)),
+        patch("chronos.cli.require_tool"),
+        patch("chronos.cli.selinux_info", return_value=SELinuxInfo(True, True, True)),
+        patch("chronos.cli.load_user_ui_defaults", return_value=None),
+        patch("chronos.cli.selected_job_targets", return_value=["projects"]),
+        patch("chronos.cli.ensure_backup_mount"),
+        patch("chronos.cli.confirm_restore"),
+        patch("chronos.cli.backup_scope_lock") as scope_lock_mock,
+        patch("chronos.cli.target_lock") as target_lock_mock,
+        patch("chronos.cli.backup_target"),
+    ):
+        scope_lock_mock.return_value.__enter__.return_value = None
+        scope_lock_mock.return_value.__exit__.return_value = None
+        target_lock_mock.return_value.__enter__.return_value = None
+        target_lock_mock.return_value.__exit__.return_value = None
+        rc = cli.main(["-ba"])
+
+    out = buf.getvalue()
+    assert rc == 0
+    assert ":: user" in out
+    assert "-> projects" in out
+    assert "OK projects" in out
