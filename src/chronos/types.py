@@ -18,7 +18,6 @@ class Plan:
     config_path: Path | None = None
     dry_run: bool = False
     yes: bool = False
-    init_config: bool = False
     show_config: bool = False
     list_targets: bool = False
     backup_dir_override: str | None = None

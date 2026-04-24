@@ -13,7 +13,6 @@ _arguments -s -S \
   '--restore-root[override restore root]:directory:_files -/' \
   '--from-version[restore from backup version]:version name:' \
   '--list-versions[list backup versions for target]:target:' \
-  '--init-config[create default config]' \
   '--show-config[show config summary]' \
   '--list-targets[list configured targets]' \
   '--extra-info[show verbose diagnostics, including rsync command]' \

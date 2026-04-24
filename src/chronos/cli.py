@@ -20,7 +20,6 @@ from .config import (
     needs_root,
     normalize_builtin_selection,
     selected_job_targets,
-    write_default_config,
 )
 from .fs import (
     backup_scope_lock,
@@ -69,7 +68,6 @@ def usage() -> str:
           -E, --extra-info            Show verbose diagnostics
               --backup-dir PATH       Override backup_dir from config
               --restore-root PATH     Override restore_root from config
-          --init-config           Create default ~/.config/chronos/config.toml
               --all-configs           Run all discovered configs in selected scope
               --list-configs          Show discovered configs and exit
               --no-sudo               Disable sudo escalation
@@ -137,8 +135,6 @@ def parse_args(argv: list[str]) -> Plan:
             plan.dry_run = True
         elif arg in ("-y", "--yes"):
             plan.yes = True
-        elif arg == "--init-config":
-            plan.init_config = True
         elif arg == "--all-configs":
             plan.all_configs = True
         elif arg == "--list-configs":
@@ -494,10 +490,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         plan = parse_args(argv)
         validate_plan(plan)
-
-        if plan.init_config:
-            write_default_config(plan.config_path)
-            return 0
 
         jobs = discover_config_jobs_for_run(plan)
         if plan.list_configs:

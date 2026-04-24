@@ -38,3 +38,8 @@ def test_short_from_version_alias_parses_restore_version() -> None:
     plan = parse_args(["-r", "projects", "-F", "20260424-180806"])
     assert plan.mode == "restore"
     assert plan.version == "20260424-180806"
+
+
+def test_init_config_flag_is_not_supported() -> None:
+    with pytest.raises(ChronosError, match="unknown argument: --init-config"):
+        parse_args(["--init-config"])
