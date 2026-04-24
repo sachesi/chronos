@@ -1,186 +1,23 @@
 # chronos
 
-`chronos` is a small Python CLI wrapper around `rsync` for configurable Linux system backup and restore workflows.
+`chronos` is a configurable Linux backup/restore CLI wrapper around `rsync`.
 
-It is packaged for Fedora/COPR for now, but the application itself is not distro-specific. The default config targets a common Linux desktop/server layout:
-
-- `/` and the current user's home backed up separately by default
-- EFI System Partition target available explicitly from `/efi` or `/boot/efi`
-- backup directory at `/mnt/storage/bak`
-- Linux metadata preservation when the source and destination filesystems support it
-
-The default rsync behavior for Linux filesystems is equivalent to:
-
-```bash
--aAXH --numeric-ids
-```
-
-`chronos` inspects source and destination filesystems before each backup/restore. If it detects a filesystem that clearly cannot preserve ACLs or xattrs, such as a FAT/exFAT-style EFI partition, it disables the unsupported rsync flags for that target and prints a warning. If SELinux is detected, it reports the SELinux status and handles `security.selinux` separately from normal xattrs: in `auto` mode it preserves real labels only when the destination allows them, otherwise it excludes only `security.selinux` and keeps other xattrs.
-
-## Install from source
-
-```bash
-python3 -m pip install --user .
-```
-
-Or build/install the RPM from `chronos.spec`.
-
-## Basic usage
-
-Backup all configured targets:
+## Quick start
 
 ```bash
 chronos -ba
-```
-
-In manual mode, `chronos -ba` discovers and runs:
-- system config scope: `/etc/chronos/config.toml` plus `/etc/chronos/config.toml.d/*.toml` (merged in lexical order)
-- user config scope: `~/.config/chronos/*.toml` (each file is a separate job)
-
-`~/.config/chronos/config.toml` is reserved for optional user UI defaults (`[ui]` only).
-Put user backup jobs in separate files such as `projects.toml`, `games.toml`, and `dotfiles.toml`.
-
-Backup selected targets:
-
-```bash
-chronos -b root -b home -b efi
-```
-
-Dry-run:
-
-```bash
-chronos -ban
-```
-
-Restore all configured targets:
-
-```bash
+chronos -b projects
 chronos -ra
 ```
 
-Restore selected targets:
+## Documentation
 
-```bash
-chronos -r root -r home -r efi
-```
+- [Documentation index](./doc/README.md)
+- [Configuration](./doc/configuration.md)
+- [Systemd integration](./doc/systemd.md)
+- [CLI reference](./doc/cli.md)
+- [Versioned backups](./doc/versioning.md)
+- [Restore guide](./doc/restore.md)
+- [Security model](./doc/security.md)
 
-Restore into a mounted system from LiveUSB:
-
-```bash
-sudo mount /dev/mapper/cryptroot /mnt/sysroot
-sudo mount /dev/YOUR_ESP /mnt/sysroot/efi
-sudo mount /dev/YOUR_BACKUP_DISK /mnt/storage
-
-chronos -ra --restore-root /mnt/sysroot
-```
-
-Use a different config:
-
-```bash
-chronos -ba -c ./my-config.toml
-```
-
-Run backup services via systemd timers (installed, not auto-enabled):
-
-```bash
-sudo systemctl enable --now chronos-backup.timer
-systemctl --user enable --now chronos-user-backup.timer
-```
-
-For user timers without active login sessions:
-
-```bash
-loginctl enable-linger $USER
-```
-
-## Config
-
-Config paths:
-
-```text
-/etc/chronos/config.toml
-/etc/chronos/config.toml.d/*.toml
-~/.config/chronos/config.toml      # [ui] defaults only
-~/.config/chronos/*.toml           # backup jobs (except config.toml)
-```
-
-Create it:
-
-```bash
-chronos --init-config
-```
-
-Show detected config, SELinux status, targets, and presets:
-
-```bash
-chronos --show-config
-chronos --list-targets
-```
-
-Default backup layout:
-
-```text
-/mnt/storage/bak/root
-/mnt/storage/bak/home/$USER
-# optional explicit target:
-/mnt/storage/bak/efi
-```
-
-`boot` and `efi` exist as optional targets, but are not included in `all_targets` by default. On systems where `/boot` is just a normal directory under `/`, it is already included in `root`. If `/boot` is a separate mount and you need it, add it to `all_targets`:
-
-```toml
-all_targets = ["root", "home", "efi", "boot"]
-```
-
-## Custom targets and presets
-
-Yes: custom backup/restore presets are supported through config.
-
-Example user target file `~/.config/chronos/projects.toml`:
-
-```toml
-backup_dir = "/mnt/storage/bak"
-all_targets = ["projects"]
-
-[ui]
-progress = "chronos"
-
-[targets.projects]
-src = "/mnt/data0/projects/"
-dst = "projects"
-requires_root = false
-one_file_system = true
-versioned = true
-keep_versions = 10
-backup_exclude = ["*/target/***", "*/.git/***/objects/***"]
-restore_exclude = []
-```
-
-A normal preset:
-
-```toml
-[presets.desktop]
-targets = ["root", "home", "efi", "projects"]
-```
-
-Use it like this. Chronos will ask for sudo only when the selected targets require it:
-
-```bash
-chronos -b desktop
-chronos -r desktop
-```
-
-A mode-specific preset:
-
-```toml
-[presets.fast]
-backup_targets = ["home", "projects"]
-restore_targets = ["home"]
-```
-
-Then:
-
-```bash
-sudo chronos backup fast
-sudo chronos restore fast
-```
+For runnable config examples, see [`./doc/examples/`](./doc/examples/system-config.toml).

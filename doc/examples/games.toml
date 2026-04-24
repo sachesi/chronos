@@ -1,0 +1,19 @@
+backup_dir = "/mnt/storage/bak"
+all_targets = ["games"]
+
+[ui]
+progress = "chronos"
+extra-info = false
+
+[targets.games]
+src = "~/Games/"
+dst = "games"
+requires_root = false
+one_file_system = true
+versioned = true
+keep_versions = 5
+backup_exclude = [
+  "**/cache/***",
+  "**/*.tmp",
+]
+restore_exclude = []
