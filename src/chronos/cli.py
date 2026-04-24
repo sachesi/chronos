@@ -365,6 +365,47 @@ def print_list_targets(config: dict, *, scope: str | None = None) -> None:
             print(f"   {c(name, Color.BOLD):<20} {desc}")
 
 
+def print_targets_overview(
+    jobs: list[ConfigJob], plan: Plan, user_ui_defaults: dict[str, object] | None
+) -> None:
+    prepared: list[tuple[ConfigJob, dict, bool]] = []
+    for job in jobs:
+        config = apply_ui_overrides(deepcopy(job.config), plan, user_ui_defaults)
+        prepared.append((job, config, extra_info_enabled(config)))
+
+    sel = selinux_info() if any(show_extra for _, _, show_extra in prepared) else None
+    section(APP_NAME)
+
+    grouped: dict[str, list[tuple[ConfigJob, dict, bool]]] = {}
+    for entry in prepared:
+        grouped.setdefault(entry[0].scope, []).append(entry)
+
+    preferred_order = ["system", "user", "explicit", "builtin"]
+    ordered_scopes = [scope for scope in preferred_order if scope in grouped]
+    ordered_scopes.extend(sorted(scope for scope in grouped if scope not in preferred_order))
+
+    for scope in ordered_scopes:
+        print()
+        print(c(scope, Color.BOLD))
+        for job, config, show_extra in grouped[scope]:
+            print(f"  {c('config:', Color.BOLD)}  {job.path if job.path else '(built-in defaults)'}")
+            print(f"  {c('backup:', Color.BOLD)}  {config['backup_dir']}")
+            print(f"  {c('targets:', Color.BOLD)} {', '.join(config.get('all_targets', []))}")
+            if show_extra:
+                print(f"  {c('version:', Color.BOLD)} {__version__}")
+                print(f"  {c('restore root:', Color.BOLD)} {config['restore_root']}")
+                if sel is not None:
+                    print(f"  {c('SELinux:', Color.BOLD)} {sel.summary()}")
+            print()
+            for name, target in config.get("targets", {}).items():
+                src = target.get("src") or ", ".join(target.get("src_candidates", []))
+                marker = "*" if name in config.get("all_targets", []) else " "
+                print(f"    {marker} {c(name, Color.BOLD):<10} {src:<26} -> {backup_dest(config, name)}")
+            if show_extra:
+                print("    * = included in targets/all for this config")
+            print()
+
+
 def print_list_versions(config: dict, target: str) -> None:
     configured = config.get("targets", {})
     if target not in configured:
@@ -430,12 +471,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if plan.list_targets and not plan.mode:
-            for job in jobs:
-                config = apply_ui_overrides(deepcopy(job.config), plan, user_ui_defaults)
-                show_extra = extra_info_enabled(config)
-                sel = selinux_info() if show_extra else None
-                print_summary(config, job.path, selinux=sel, compact=True, show_extra=show_extra)
-                print_list_targets(config, scope=job.scope)
+            print_targets_overview(jobs, plan, user_ui_defaults)
             return 0
 
         if plan.list_versions_target is not None and not plan.mode:
