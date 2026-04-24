@@ -162,6 +162,7 @@ extra_restore_args = []
 [targets.root]
 src = "/"
 dst = "root"
+requires_root = true
 one_file_system = true
 # /boot is intentionally not excluded here. If /boot is a separate mount,
 # --one-file-system skips it. If /boot is just a directory on /, it is backed up.
@@ -198,6 +199,7 @@ create_dirs_after_restore = [
 [targets.home]
 src = "~/"
 dst = "home"
+requires_root = false
 one_file_system = true
 backup_exclude = [
   ".cache/***",
@@ -211,6 +213,7 @@ restore_exclude = []
 # First mounted path wins.
 src_candidates = ["/efi/", "/boot/efi/"]
 dst = "efi"
+requires_root = true
 # ESP is usually FAT, so -A/-X are not useful here.
 preserve_acls = false
 preserve_xattrs = false
@@ -222,6 +225,7 @@ restore_exclude = []
 [targets.boot]
 src = "/boot/"
 dst = "boot"
+requires_root = true
 one_file_system = true
 backup_exclude = [
   "/efi/***",
@@ -234,9 +238,14 @@ restore_exclude = [
 # [targets.projects]
 # src = "/mnt/data0/projects/"
 # dst = "projects"
+# requires_root = false  # custom targets default to user mode
 # one_file_system = true
 # backup_exclude = ["*/target/***", "*/.git/***/objects/***"]
 # restore_exclude = []
+#
+# Custom targets default to user mode. Set requires_root = true only when the
+# source truly requires root privileges (for example, system paths). A path
+# such as /mnt/data0/projects should not need sudo if your user can read it.
 """
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -271,6 +280,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "root": {
             "src": "/",
             "dst": "root",
+            "requires_root": True,
             "one_file_system": True,
             "backup_exclude": [
                 "/home/***",
@@ -314,6 +324,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "home": {
             "src": "~/",
             "dst": "home",
+            "requires_root": False,
             "one_file_system": True,
             "backup_exclude": [
                 ".cache/***",
@@ -326,6 +337,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "efi": {
             "src_candidates": ["/efi/", "/boot/efi/"],
             "dst": "efi",
+            "requires_root": True,
             "preserve_acls": False,
             "preserve_xattrs": False,
             "one_file_system": False,
@@ -336,6 +348,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "boot": {
             "src": "/boot/",
             "dst": "boot",
+            "requires_root": True,
             "one_file_system": True,
             "backup_exclude": ["/efi/***"],
             "restore_exclude": ["/efi/***"],
@@ -514,14 +527,6 @@ def expand_user_path(path: str | Path) -> Path:
     return Path(text).expanduser()
 
 
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve(strict=False).relative_to(parent.resolve(strict=False))
-        return True
-    except ValueError:
-        return False
-
-
 def usage() -> str:
     return textwrap.dedent(
         f"""
@@ -677,6 +682,272 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return result
 
 
+TARGET_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+RESERVED_TARGET_NAMES = {"all", "a"}
+ALLOWED_TOP_LEVEL_KEYS = {
+    "backup_dir",
+    "restore_root",
+    "all_targets",
+    "confirm_restore_to_live_root",
+    "require_backup_mount",
+    "check_filesystems",
+    "auto_disable_unsupported_metadata",
+    "touch_autorelabel",
+    "selinux_xattrs",
+    "delete",
+    "delete_excluded",
+    "exclude_container_storage",
+    "numeric_ids",
+    "preserve_acls",
+    "preserve_xattrs",
+    "preserve_hardlinks",
+    "progress",
+    "progress_style",
+    "ui",
+    "rsync",
+    "presets",
+    "targets",
+}
+
+
+def config_error(config_path: Path | None, message: str) -> ChronosError:
+    where = str(config_path) if config_path is not None else "default config"
+    return ChronosError(f"invalid config ({where}): {message}")
+
+
+def require_bool(
+    config: dict[str, Any], key: str, config_path: Path | None, *, scope: str = ""
+) -> bool:
+    value = config.get(key)
+    if not isinstance(value, bool):
+        label = f"{scope}.{key}" if scope else key
+        raise config_error(config_path, f"{label} must be a boolean")
+    return value
+
+
+def require_string(
+    config: dict[str, Any],
+    key: str,
+    config_path: Path | None,
+    *,
+    scope: str = "",
+    non_empty: bool = False,
+) -> str:
+    value = config.get(key)
+    if not isinstance(value, str):
+        label = f"{scope}.{key}" if scope else key
+        raise config_error(config_path, f"{label} must be a string")
+    if non_empty and not value.strip():
+        label = f"{scope}.{key}" if scope else key
+        raise config_error(config_path, f"{label} must be a non-empty string")
+    return value
+
+
+def require_table(
+    config: dict[str, Any], key: str, config_path: Path | None, *, scope: str = ""
+) -> dict[str, Any]:
+    value = config.get(key)
+    if not isinstance(value, dict):
+        label = f"{scope}.{key}" if scope else key
+        raise config_error(config_path, f"{label} must be a table")
+    return value
+
+
+def require_string_list(
+    config: dict[str, Any],
+    key: str,
+    config_path: Path | None,
+    *,
+    scope: str = "",
+    non_empty: bool = False,
+) -> list[str]:
+    value = config.get(key)
+    label = f"{scope}.{key}" if scope else key
+    if not isinstance(value, list) or any(not isinstance(x, str) for x in value):
+        raise config_error(config_path, f"{label} must be a list of strings")
+    if non_empty and not value:
+        raise config_error(config_path, f"{label} must be a non-empty list of strings")
+    return value
+
+
+def validate_targets(config: dict[str, Any], config_path: Path | None) -> None:
+    targets = require_table(config, "targets", config_path)
+    allowed_target_keys = {
+        "src",
+        "src_candidates",
+        "dst",
+        "backup_exclude",
+        "restore_exclude",
+        "create_dirs_after_restore",
+        "one_file_system",
+        "mount_required",
+        "preserve_acls",
+        "preserve_xattrs",
+        "numeric_ids",
+        "preserve_hardlinks",
+        "delete",
+        "delete_excluded",
+        "requires_root",
+    }
+    bool_keys = {
+        "one_file_system",
+        "mount_required",
+        "preserve_acls",
+        "preserve_xattrs",
+        "numeric_ids",
+        "preserve_hardlinks",
+        "delete",
+        "delete_excluded",
+        "requires_root",
+    }
+    list_keys = {"backup_exclude", "restore_exclude", "create_dirs_after_restore"}
+
+    for name, target in targets.items():
+        if not isinstance(name, str) or not TARGET_NAME_RE.fullmatch(name):
+            raise config_error(
+                config_path,
+                f"target name {name!r} must match [A-Za-z0-9_.-]+",
+            )
+        if name in RESERVED_TARGET_NAMES:
+            raise config_error(config_path, f"target name {name!r} is reserved")
+        if not isinstance(target, dict):
+            raise config_error(config_path, f"targets.{name} must be a table")
+
+        unknown_keys = sorted(set(target) - allowed_target_keys)
+        if unknown_keys:
+            raise config_error(
+                config_path,
+                f"targets.{name} has unknown key(s): {', '.join(unknown_keys)}",
+            )
+
+        has_src = "src" in target
+        has_src_candidates = "src_candidates" in target
+        if has_src == has_src_candidates:
+            raise config_error(
+                config_path,
+                f"targets.{name} must define exactly one of src or src_candidates",
+            )
+
+        if has_src:
+            require_string(target, "src", config_path, scope=f"targets.{name}", non_empty=True)
+        if has_src_candidates:
+            require_string_list(
+                target,
+                "src_candidates",
+                config_path,
+                scope=f"targets.{name}",
+                non_empty=True,
+            )
+
+        require_string(target, "dst", config_path, scope=f"targets.{name}", non_empty=True)
+
+        for key in list_keys & set(target):
+            require_string_list(target, key, config_path, scope=f"targets.{name}")
+        for key in bool_keys & set(target):
+            require_bool(target, key, config_path, scope=f"targets.{name}")
+
+
+def validate_presets(config: dict[str, Any], config_path: Path | None) -> None:
+    presets = require_table(config, "presets", config_path)
+    targets = require_table(config, "targets", config_path)
+
+    for name, preset in presets.items():
+        if not isinstance(name, str):
+            raise config_error(config_path, "preset names must be strings")
+        if not isinstance(preset, dict):
+            raise config_error(config_path, f"presets.{name} must be a table")
+
+        keys = ("targets", "backup_targets", "restore_targets")
+        if not any(key in preset for key in keys):
+            raise config_error(
+                config_path,
+                f"presets.{name} must define targets, backup_targets, or restore_targets",
+            )
+
+        for key in keys:
+            if key not in preset:
+                continue
+            values = require_string_list(
+                preset, key, config_path, scope=f"presets.{name}", non_empty=True
+            )
+            for target_name in values:
+                normalized = normalize_builtin_selection(target_name)
+                if normalized == "all":
+                    continue
+                if normalized not in targets:
+                    raise config_error(
+                        config_path,
+                        f"presets.{name}.{key} references unknown target: {target_name}",
+                    )
+
+
+def validate_config(config: dict[str, Any], config_path: Path | None) -> dict[str, Any]:
+    unknown_top = sorted(set(config) - ALLOWED_TOP_LEVEL_KEYS)
+    if unknown_top:
+        raise config_error(config_path, f"unknown top-level key(s): {', '.join(unknown_top)}")
+
+    require_string(config, "backup_dir", config_path, non_empty=True)
+    require_string(config, "restore_root", config_path, non_empty=True)
+    require_string_list(config, "all_targets", config_path, non_empty=True)
+
+    for key in (
+        "confirm_restore_to_live_root",
+        "require_backup_mount",
+        "check_filesystems",
+        "auto_disable_unsupported_metadata",
+        "delete",
+        "delete_excluded",
+        "exclude_container_storage",
+        "numeric_ids",
+        "preserve_acls",
+        "preserve_xattrs",
+        "preserve_hardlinks",
+        "progress",
+    ):
+        require_bool(config, key, config_path)
+
+    require_string(config, "progress_style", config_path, non_empty=True)
+    ui = require_table(config, "ui", config_path)
+    rsync = require_table(config, "rsync", config_path)
+    require_table(config, "presets", config_path)
+    require_table(config, "targets", config_path)
+
+    touch = config.get("touch_autorelabel")
+    if touch not in {"auto", True, False}:
+        raise config_error(config_path, 'touch_autorelabel must be "auto", true, or false')
+
+    selinux_xattrs = config.get("selinux_xattrs")
+    if selinux_xattrs not in {"auto", "preserve", "exclude"}:
+        raise config_error(
+            config_path, 'selinux_xattrs must be "auto", "preserve", or "exclude"'
+        )
+
+    ui_progress = require_string(ui, "progress", config_path, scope="ui", non_empty=True)
+    if ui_progress not in {"chronos", "rsync", "none", "auto"}:
+        raise config_error(
+            config_path, 'ui.progress must be "chronos", "rsync", "none", or "auto"'
+        )
+    require_bool(ui, "extra-info", config_path, scope="ui")
+
+    require_string_list(rsync, "extra_backup_args", config_path, scope="rsync")
+    require_string_list(rsync, "extra_restore_args", config_path, scope="rsync")
+
+    validate_targets(config, config_path)
+
+    for target_name in require_string_list(config, "all_targets", config_path, non_empty=True):
+        normalized = normalize_builtin_selection(target_name)
+        if normalized == "all":
+            continue
+        if normalized not in config["targets"]:
+            raise config_error(
+                config_path,
+                f"all_targets references unknown target: {target_name}",
+            )
+
+    validate_presets(config, config_path)
+    return config
+
+
 def load_config(path: Path | None) -> tuple[dict[str, Any], Path | None]:
     if path is None:
         path = default_config_path()
@@ -685,10 +956,16 @@ def load_config(path: Path | None) -> tuple[dict[str, Any], Path | None]:
     elif not path.exists():
         raise ChronosError(f"config file does not exist: {path}")
 
-    with path.open("rb") as f:
-        user_config = tomllib.load(f)
+    try:
+        with path.open("rb") as f:
+            user_config = tomllib.load(f)
+    except tomllib.TOMLDecodeError as exc:
+        raise ChronosError(f"invalid TOML in config {path}: {exc}") from None
+    except OSError as exc:
+        raise ChronosError(f"cannot read config {path}: {exc}") from exc
 
-    return deep_merge(DEFAULT_CONFIG, user_config), path
+    config = deep_merge(DEFAULT_CONFIG, user_config)
+    return validate_config(config, path), path
 
 
 def write_default_config(path: Path | None = None) -> None:
@@ -706,13 +983,11 @@ def target_needs_root(config: dict[str, Any], target: str, mode: str) -> bool:
         return True
 
     target_config = config["targets"][target]
-    if target_config.get("mount_required", False) or "src_candidates" in target_config:
-        return True
+    return target_requires_root(target_config)
 
-    src_raw = target_config.get("src", f"/{target}")
-    src = expand_user_path(src_raw)
-    home = original_user_home()
-    return not is_within(src, home)
+
+def target_requires_root(target_config: dict[str, Any]) -> bool:
+    return bool(target_config.get("requires_root", False))
 
 
 def needs_root(config: dict[str, Any], targets: list[str], mode: str) -> bool:

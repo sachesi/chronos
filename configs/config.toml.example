@@ -86,6 +86,7 @@ extra_restore_args = []
 [targets.root]
 src = "/"
 dst = "root"
+requires_root = true
 one_file_system = true
 # /boot is intentionally not excluded here. If /boot is a separate mount,
 # --one-file-system skips it. If /boot is just a directory on /, it is backed up.
@@ -122,6 +123,7 @@ create_dirs_after_restore = [
 [targets.home]
 src = "~/"
 dst = "home"
+requires_root = false
 one_file_system = true
 backup_exclude = [
   ".cache/***",
@@ -135,6 +137,7 @@ restore_exclude = []
 # First mounted path wins.
 src_candidates = ["/efi/", "/boot/efi/"]
 dst = "efi"
+requires_root = true
 # ESP is usually FAT, so -A/-X are not useful here.
 preserve_acls = false
 preserve_xattrs = false
@@ -146,6 +149,7 @@ restore_exclude = []
 [targets.boot]
 src = "/boot/"
 dst = "boot"
+requires_root = true
 one_file_system = true
 backup_exclude = [
   "/efi/***",
@@ -158,7 +162,11 @@ restore_exclude = [
 # [targets.projects]
 # src = "/mnt/data0/projects/"
 # dst = "projects"
+# requires_root = false  # custom targets default to user mode
 # one_file_system = true
 # backup_exclude = ["*/target/***", "*/.git/***/objects/***"]
 # restore_exclude = []
-
+#
+# Custom targets default to user mode. Set requires_root = true only when the
+# source truly requires root privileges (for example, system paths). A path
+# such as /mnt/data0/projects should not need sudo if your user can read it.
