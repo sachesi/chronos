@@ -1,6 +1,6 @@
 Name:           chronos
 Version:        0.2.1
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        Configurable rsync backup and restore helper for Linux
 
 License:        GPL-3.0-or-later
@@ -103,6 +103,9 @@ chmod 0644 %{buildroot}%{_datadir}/zsh/site-functions/_%{name}
 %config(noreplace) %attr(0644,root,root) %{_sysconfdir}/chronos/config.toml
 
 %changelog
+* Mon Apr 27 2026 sachesi <sachesi.bb.passp@proton.me> - 0.2.1-3
+- Unify Makefile and remove .copr
+
 * Fri Apr 24 2026 sachesi <sachesi.bb.passp@proton.me> - 0.2.1-2
 - Fix credentials
 
